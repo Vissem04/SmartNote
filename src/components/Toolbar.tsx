@@ -38,9 +38,9 @@ export function Toolbar() {
           <ScanText size={18} />
           <span>텍스트 변환</span>
         </button>
-        <button className={`tool-btn ai ${tool === "ai" ? "active" : ""}`} onClick={() => setTool("ai")} data-tip="AI 풀이: 문제를 둘러싸세요 (A)">
+        <button className={`tool-btn ai ${tool === "ai" ? "active" : ""}`} onClick={() => setTool("ai")} data-tip="풀이: 문제를 둘러싸면 답과 채점 (A)">
           <Sparkles size={18} />
-          <span>AI 풀이</span>
+          <span>풀이</span>
         </button>
         <span className="divider" />
         <button
@@ -169,7 +169,7 @@ function AiHint() {
   const setPanel = useStore((s) => s.setPanel);
   return (
     <div className="tool-options">
-      <span className="hint ai">문제(와 내 풀이)를 펜으로 둘러싸면 AI가 풀고 채점해요</span>
+      <span className="hint ai">문제(와 내 풀이)를 펜으로 둘러싸면 자동으로 풀고 채점해요</span>
       <span className="divider" />
       <button className={`chip ${count ? "on" : ""}`} onClick={() => setPanel("materials")}>
         <BookOpen size={14} /> 강의자료 {count ? `${count}개 참조` : "없음"}

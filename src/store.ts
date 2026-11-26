@@ -109,6 +109,32 @@ function loadSettings(): Settings {
   }
 }
 
+/** 예제 노트에 들어 있던 'AI' 안내 문구를 새 문구로 (예제 문구와 정확히 일치하는 부분만) */
+const SAMPLE_FIXES: [string, string][] = [
+  ["✦ AI 풀이 (A): 문제와 내 풀이를 펜으로 둘러싸면 AI가 답을 옆에 적고, 내 답이 맞는지 채점해 줍니다.", "✦ 풀이 (A): 문제와 내 풀이를 펜으로 둘러싸면 답을 옆에 적고, 내 답이 맞는지 채점해 줍니다."],
+  ["강의자료에서 PDF를 올리면 AI가 그 자료의 표기법과 공식을 참고해 풉니다.", "강의자료에서 PDF를 올리면 그 자료의 표기법과 공식을 참고해 풉니다."],
+  [" · A AI 풀이 · ", " · A 풀이 · "],
+];
+function migrateSampleText(pages: Record<string, Page>): string[] {
+  const changed: string[] = [];
+  for (const p of Object.values(pages)) {
+    let touched = false;
+    const objects = p.objects.map((o) => {
+      if (o.type !== "text" || !o.text.includes("✦ AI 풀이 (A):")) return o;
+      let text = o.text;
+      for (const [from, to] of SAMPLE_FIXES) text = text.split(from).join(to);
+      if (text === o.text) return o;
+      touched = true;
+      return { ...o, text };
+    });
+    if (touched) {
+      pages[p.id] = { ...p, objects };
+      changed.push(p.id);
+    }
+  }
+  return changed;
+}
+
 function loadSidebarOpen() {
   if (typeof window === "undefined") return true;
   if (window.innerWidth <= 900) return false;
@@ -145,11 +171,11 @@ function sampleObjects(): NoteObj[] {
       fontSize: 19,
       color: "#2b2b2b",
       text:
-        "✦ AI 풀이 (A): 문제와 내 풀이를 펜으로 둘러싸면 AI가 답을 옆에 적고, 내 답이 맞는지 채점해 줍니다.\n" +
+        "✦ 풀이 (A): 문제와 내 풀이를 펜으로 둘러싸면 답을 옆에 적고, 내 답이 맞는지 채점해 줍니다.\n" +
         "✦ 텍스트 변환 (C): 손글씨를 둘러싸면 컴퓨터 글자로 바꿔 줍니다. 결과를 확인·수정한 뒤 적용하세요.\n" +
         "✦ 표 (B): 원하는 크기의 표를 넣고, 선을 드래그해 셀 크기를 바꾸고, 지우개로 선을 지우면 셀이 병합됩니다.\n" +
-        "✦ 강의자료: 상단의 📚 강의자료에서 PDF를 올리면 AI가 그 자료의 표기법과 공식을 참고해 풉니다.\n" +
-        "✦ 단축키: P 펜 · H 형광펜 · E 지우개 · V 올가미 · T 텍스트 · B 표 · C 텍스트 변환 · A AI 풀이 · Space+드래그 이동 · Ctrl+Z 실행취소",
+        "✦ 강의자료: 상단의 📚 강의자료에서 PDF를 올리면 그 자료의 표기법과 공식을 참고해 풉니다.\n" +
+        "✦ 단축키: P 펜 · H 형광펜 · E 지우개 · V 올가미 · T 텍스트 · B 표 · C 텍스트 변환 · A 풀이 · Space+드래그 이동 · Ctrl+Z 실행취소",
     },
     {
       id: uid(),
@@ -242,6 +268,7 @@ export const useStore = create<State>()((set, get) => ({
       console.warn("저장된 노트를 불러올 수 없습니다 (브라우저 저장소 차단)", e);
     }
     const { meta, pages } = loadedData;
+    const migrated = migrateSampleText(pages);
     if (meta && meta.notebooks.length) {
       set({
         loaded: true,
@@ -251,6 +278,7 @@ export const useStore = create<State>()((set, get) => ({
         activeNotebookId: meta.activeNotebookId ?? meta.notebooks[0].id,
         activePageId: meta.activePageId && pages[meta.activePageId] ? meta.activePageId : meta.notebooks[0].pageIds[0],
       });
+      migrated.forEach((id) => scheduleSave(id));
       return;
     }
     // 첫 실행: 예제 노트 생성

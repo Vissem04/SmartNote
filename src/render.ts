@@ -180,7 +180,7 @@ export async function renderPage(page: Page, scale = 1, withTemplate = true): Pr
     ctx.stroke();
     ctx.fillStyle = "#111111";
     ctx.font = `600 14px ${FONT_FAMILY}`;
-    ctx.fillText("AI 풀이", a.x + 12, a.y + 24);
+    ctx.fillText("풀이", a.x + 12, a.y + 24);
     ctx.fillStyle = "#1f2328";
     ctx.font = `14px ${FONT_FAMILY}`;
     lines.forEach((l, i) => ctx.fillText(l, a.x + 12, a.y + 48 + i * 20));

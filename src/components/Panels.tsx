@@ -76,7 +76,7 @@ export function MaterialsPanel() {
   return (
     <Modal title="강의자료" icon={<BookOpen size={20} className="accent-ic" />} onClose={() => st().setPanel(null)} wide>
       <p className="modal-desc">
-        <b>{nb?.title}</b> 노트에 첨부한 자료는 AI가 문제를 풀 때 참고합니다. 자료의 정의·표기법·공식을 따라 풀기 때문에 수업 방식과 같은 풀이를 얻을 수 있어요.{isArtifact ? " PDF는 이 기기에서 글자를 읽어 쪽 번호와 함께 참조합니다." : " 같은 자료로 반복해서 풀면 캐시가 적용되어 더 빠르고 저렴합니다."}
+        <b>{nb?.title}</b> 노트에 첨부한 자료는 문제를 풀 때 참고합니다. 자료의 정의·표기법·공식을 따라 풀기 때문에 수업 방식과 같은 풀이를 얻을 수 있어요.{isArtifact ? " PDF는 이 기기에서 글자를 읽어 쪽 번호와 함께 참조합니다." : " 같은 자료로 반복해서 풀면 캐시가 적용되어 더 빠르고 저렴합니다."}
       </p>
       <input
         ref={fileRef}
@@ -152,7 +152,7 @@ export function MaterialsPanel() {
                 )}
               </span>
             </div>
-            <label className="switch" title="AI 풀이에 참조">
+            <label className="switch" title="풀이에 참조">
               <input type="checkbox" checked={m.enabled} disabled={m.status !== "ready"} onChange={(e) => st().updateMaterial(m.id, { enabled: e.target.checked })} />
               <span />
             </label>
@@ -188,15 +188,15 @@ export function SettingsPanel() {
     <Modal title="설정" icon={<KeyRound size={20} className="accent-ic" />} onClose={() => st().setPanel(null)}>
       {isArtifact ? (
         <section className="setting">
-          <h3>AI 연결</h3>
+          <h3>연결</h3>
           <div className="server-status ok">claude.ai 계정의 Claude를 사용합니다</div>
           <small className="note">
-            AI 풀이와 텍스트 변환은 지금 로그인한 claude.ai 계정의 사용량으로 동작합니다. 처음 사용할 때 Claude 사용 허용 여부를 묻습니다. API 키는 필요 없습니다.
+            풀이와 텍스트 변환은 지금 로그인한 claude.ai 계정의 사용량으로 동작합니다. 처음 사용할 때 허용 여부를 묻습니다. API 키는 필요 없습니다.
           </small>
         </section>
       ) : (
       <section className="setting">
-        <h3>AI 연결</h3>
+        <h3>연결</h3>
         <div className={`server-status ${server === "loading" ? "" : server ? (server.hasServerKey || settings.apiKey ? "ok" : "warn") : "bad"}`}>
           {server === "loading"
             ? "서버 확인 중…"
@@ -277,7 +277,7 @@ export function SettingsPanel() {
           {[
             ["P / H / E", "펜 / 형광펜 / 지우개"],
             ["V / T / B", "올가미 / 텍스트 / 표"],
-            ["A", "AI 풀이 (영역 둘러싸기)"],
+            ["A", "풀이 (영역 둘러싸기)"],
             ["C", "손글씨 → 텍스트 변환"],
             ["Space + 드래그", "화면 이동"],
             [`${modKey} + 휠`, "확대·축소"],

@@ -77,7 +77,7 @@ function AnswerCardInner({ a, pageId }: { a: AnswerObj; pageId: string }) {
         <div className="answer-head" onPointerDown={startDrag}>
           <GripHorizontal size={14} className="grip" />
           <Sparkles size={15} className="spark" />
-          <span className="answer-title">AI 풀이</span>
+          <span className="answer-title">풀이</span>
           {a.status === "loading" && (
             <span className="answer-status">
               <Loader2 size={13} className="spin" /> {body ? "작성 중" : "푸는 중"}

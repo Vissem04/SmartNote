@@ -128,7 +128,7 @@ app.post("/api/solve", async (req: Request, res: Response) => {
     stream.on("text", (delta) => send("delta", { text: delta }));
     const final = await stream.finalMessage();
     if (final.stop_reason === "refusal") {
-      send("error", { message: "AI가 이 요청에 대한 답변을 거절했습니다. 영역을 다시 지정해 보세요." });
+      send("error", { message: "이 영역은 풀 수 없습니다. 영역을 다시 지정해 보세요." });
     } else {
       send("done", {
         stopReason: final.stop_reason,

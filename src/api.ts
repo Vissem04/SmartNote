@@ -50,7 +50,7 @@ export async function deleteMaterial(fileId: string, settings: Settings) {
 export async function transcribe(image: string, settings: Settings, signal?: AbortSignal): Promise<string> {
   if (isArtifact) {
     const sample = await getSample();
-    if (!sample) throw new Error("이 화면에서는 AI를 사용할 수 없습니다.");
+    if (!sample) throw new Error("이 화면에서는 텍스트 변환을 사용할 수 없습니다.");
     try {
       const { text } = await sample(`${TRANSCRIBE_PROMPT}\n\n첨부한 이미지의 손글씨를 텍스트로 옮겨 주세요.`, {
         images: [dataUrlToBlob("data:image/png;base64," + image)],
@@ -173,7 +173,7 @@ async function solveViaSample(
 ) {
   const sample = await getSample();
   if (!sample) {
-    h.onError("이 화면에서는 AI를 사용할 수 없습니다. claude.ai에서 아티팩트를 열어 주세요.");
+    h.onError("이 화면에서는 풀이를 사용할 수 없습니다. claude.ai에서 열어 주세요.");
     return;
   }
   const limits = await sample.limits().catch(() => null);

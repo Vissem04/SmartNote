@@ -1000,7 +1000,7 @@ function PageCanvas({ page }: { page: Page }) {
                   <ScanText size={15} /> 텍스트로
                 </button>
               )}
-              <button className="ai-btn" title="선택 영역 AI 풀이" onClick={solveSelection}>
+              <button className="ai-btn" title="선택 영역 풀이" onClick={solveSelection}>
                 <Sparkles size={15} /> 풀이
               </button>
               <button title="복제 (Ctrl+D)" onClick={dupSelection}>
