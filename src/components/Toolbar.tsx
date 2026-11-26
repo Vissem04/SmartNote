@@ -123,7 +123,7 @@ function ToolOptions() {
   if (tool === "select")
     return (
       <div className="tool-options">
-        <span className="hint">드래그로 둘러싸서 선택 · 모서리 핸들로 크기 조절 · 표 선 드래그로 셀 크기 조절</span>
+        <span className="hint">드래그로 둘러싸서 선택 · 표: 꼭짓점 드래그 = 비율 유지 크기 조절, 선 드래그 = 셀 크기, 테두리 클릭 = 삭제</span>
       </div>
     );
   return null;

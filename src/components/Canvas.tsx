@@ -815,7 +815,7 @@ function PageCanvas({ page }: { page: Page }) {
         <div className="page" style={{ width: page.width, height: page.height, ...tplStyle }}>
           {objs.map((o) => (o.type === "image" ? <ImageView key={o.id} o={o} /> : null))}
           {objs.map((o) =>
-            o.type === "table" ? <TableView key={o.id} table={o} pageId={pid} tool={tool} editingKey={tableEditId === o.id ? tableEditKey : null} /> : null,
+            o.type === "table" ? <TableView key={o.id} table={o} pageId={pid} tool={tool} selected={selection.includes(o.id)} editingKey={tableEditId === o.id ? tableEditKey : null} /> : null,
           )}
           {objs.map((o) => (o.type === "text" ? <TextView key={o.id} o={o} pageId={pid} editing={editingId === o.id} /> : null))}
 
