@@ -115,6 +115,8 @@ export interface Settings {
   effort: "low" | "medium" | "high" | "xhigh";
   theme: "light" | "dark" | "system";
   penOnly: boolean;
+  /** 사용자가 펜 전용 모드를 직접 바꾼 적이 있는지 (자동 켜기 방지) */
+  penOnlyTouched: boolean;
   /** 붙여넣기·손글씨 변환·새 텍스트 상자의 기본 글자 크기 */
   textSize: number;
   /** true면 손글씨 변환 시 손글씨 크기를 따라감 */

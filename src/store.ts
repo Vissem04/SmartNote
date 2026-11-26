@@ -96,9 +96,11 @@ const dirtyPages = new Set<string>();
 const deletedPages = new Set<string>();
 
 function loadSettings(): Settings {
-  const def: Settings = { apiKey: "", effort: "high", theme: "system", penOnly: false, textSize: 20, convertMatchHandwriting: false };
+  const def: Settings = { apiKey: "", effort: "high", theme: "system", penOnly: true, penOnlyTouched: false, textSize: 20, convertMatchHandwriting: false };
   try {
-    return { ...def, ...JSON.parse(localStorage.getItem("smartnote:settings") ?? "{}") };
+    const saved = { ...def, ...JSON.parse(localStorage.getItem("smartnote:settings") ?? "{}") } as Settings;
+    if (!saved.penOnlyTouched) saved.penOnly = true;
+    return saved;
   } catch {
     return def;
   }

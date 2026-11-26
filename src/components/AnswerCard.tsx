@@ -25,6 +25,7 @@ function AnswerCardInner({ a, pageId }: { a: AnswerObj; pageId: string }) {
 
   const startDrag = (e: React.PointerEvent) => {
     if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    if (e.pointerType === "touch" && useStore.getState().settings.penOnly) return;
     e.stopPropagation();
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);

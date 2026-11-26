@@ -25,6 +25,7 @@ import { solveRegion } from "../aiSolve";
 import { convertRegion, cancelConversion } from "../handwriting";
 import { ConvertPanel } from "./ConvertPanel";
 import { clamp, uid } from "../util";
+import { isPalmLike, isPenEraser, notePenActivity, penRecentlyActive } from "../input";
 import { TEMPLATE_SPACING } from "../render";
 import { FONT_FAMILY, fitTextWidth, naturalWidth } from "../text";
 
@@ -123,7 +124,8 @@ function PageCanvas({ page }: { page: Page }) {
   const drag = useRef<Drag | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number; type: string }>());
   const pinch = useRef<{ dist: number; cx: number; cy: number; z: number; vx: number; vy: number } | null>(null);
-  const penSeen = useRef(false);
+  /** 현재 드래그(그리기·지우기·이동 등)를 소유한 포인터 — 다른 포인터의 이벤트는 무시 */
+  const dragPointer = useRef<number | null>(null);
   const spaceDown = useRef(false);
   const [aiPending, setAiPending] = useState<XY[] | null>(null);
   const lastPos = useRef<XY | null>(null);
@@ -369,15 +371,38 @@ function PageCanvas({ page }: { page: Page }) {
     const wrap = wrapRef.current!;
     if ((e.target as HTMLElement).closest(".float-ui")) return;
     const st = useStore.getState();
-    if (e.pointerType === "pen") penSeen.current = true;
+    const isTouch = e.pointerType === "touch";
+
+    if (e.pointerType === "pen") {
+      notePenActivity(true);
+      // 펜을 처음 쓰면 펜 전용 모드를 자동으로 켬 (설정에서 직접 끈 경우 제외)
+      if (!st.settings.penOnly && !st.settings.penOnlyTouched) st.setSettings({ penOnly: true });
+      // 손가락으로 화면을 움직이던 중이면 펜이 우선
+      if (drag.current && (drag.current.kind === "pan" || drag.current.kind === "pinch")) {
+        drag.current = null;
+        pinch.current = null;
+        dragPointer.current = null;
+        wrap.classList.remove("panning");
+      }
+    }
+
+    if (isTouch && st.settings.penOnly) {
+      // 펜으로 작업 중이거나, 펜이 막 떠 있거나, 손바닥처럼 넓은 터치는 완전히 무시
+      const penBusy = drag.current && drag.current.kind !== "pan" && drag.current.kind !== "pinch";
+      if (penBusy || penRecentlyActive() || isPalmLike(e)) return;
+    } else if (isTouch && drag.current && drag.current.kind !== "pan" && drag.current.kind !== "pinch" && dragPointer.current !== null) {
+      // 펜 전용이 아니어도, 다른 포인터가 그리는 중이면 끼어들지 않음
+      return;
+    }
+
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     wrap.setPointerCapture(e.pointerId);
 
-    // 펜이 감지되었거나 '펜 전용' 설정이면 손가락은 이동/확대만
-    const touchNavigates = e.pointerType === "touch" && (st.settings.penOnly || penSeen.current);
+    // 펜 전용 모드면 손가락은 이동/확대만
+    const touchNavigates = isTouch && st.settings.penOnly;
     const touches = [...pointers.current.values()].filter((p) => p.type === "touch");
-    if (e.pointerType === "touch" && touches.length === 2) {
-      // 두 손가락 → 확대/이동 (진행 중인 그리기는 취소)
+    if (isTouch && touches.length === 2) {
+      // 두 손가락 → 확대/이동 (손가락으로 그리던 획은 취소)
       cancelLive();
       const [a, b] = touches;
       const r = wrap.getBoundingClientRect();
@@ -390,15 +415,28 @@ function PageCanvas({ page }: { page: Page }) {
         vy: view.current.y,
       };
       drag.current = { kind: "pinch" };
+      dragPointer.current = null;
+      return;
+    }
+
+    // S펜 버튼을 누른 채 쓰면 지우개
+    if (isPenEraser(e)) {
+      const [ex, ey] = toPage(e.clientX, e.clientY);
+      drag.current = { kind: "erase", last: [ex, ey], started: false };
+      dragPointer.current = e.pointerId;
+      eraseAlong(ex, ey, ex, ey);
       return;
     }
 
     if (e.button === 1 || e.button === 2 || spaceDown.current || st.tool === "hand" || touchNavigates) {
       e.preventDefault();
       drag.current = { kind: "pan", sx: e.clientX, sy: e.clientY, vx: view.current.x, vy: view.current.y };
+      dragPointer.current = e.pointerId;
       wrap.classList.add("panning");
       return;
     }
+    // 이후 시작되는 모든 드래그는 이 포인터 소유
+    dragPointer.current = e.pointerId;
     if (e.button !== 0) return;
     if (st.editingId) {
       // 편집 중 바깥 클릭 → 편집 종료만
@@ -499,6 +537,7 @@ function PageCanvas({ page }: { page: Page }) {
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (e.pointerType === "pen") notePenActivity(); // 호버 포함 — 손바닥 판정용
     const p = pointers.current.get(e.pointerId);
     if (p) {
       p.x = e.clientX;
@@ -512,6 +551,8 @@ function PageCanvas({ page }: { page: Page }) {
     }
     const d = drag.current;
     if (!d) return;
+    // 드래그를 시작한 포인터의 움직임만 반영 (손바닥·다른 손가락 무시). 핀치는 두 터치를 함께 사용
+    if (d.kind !== "pinch" && dragPointer.current !== null && e.pointerId !== dragPointer.current) return;
     const pid = pageRef.current.id;
     const st = useStore.getState();
 
@@ -588,8 +629,11 @@ function PageCanvas({ page }: { page: Page }) {
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
+    if (e.pointerType === "pen") notePenActivity(false);
     pointers.current.delete(e.pointerId);
     const d = drag.current;
+    // 다른 포인터(손바닥 등)가 떨어져도 진행 중인 획은 계속
+    if (d && d.kind !== "pinch" && dragPointer.current !== null && e.pointerId !== dragPointer.current) return;
     wrapRef.current?.classList.remove("panning");
     if (!d) return;
     if (d.kind === "pinch") {
@@ -600,6 +644,7 @@ function PageCanvas({ page }: { page: Page }) {
       return;
     }
     drag.current = null;
+    dragPointer.current = null;
     const st = useStore.getState();
     const pid = pageRef.current.id;
 

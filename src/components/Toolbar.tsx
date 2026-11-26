@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Eraser, Hand, Highlighter, Lasso, PenLine, ScanText, Sparkles, Table2, Type, BookOpen } from "lucide-react";
+import { Pointer, Eraser, Hand, Highlighter, Lasso, PenLine, ScanText, Sparkles, Table2, Type, BookOpen } from "lucide-react";
 import { useStore, PEN_COLORS, HL_COLORS } from "../store";
 import { TextSizeSelect } from "./TextSizeSelect";
 import type { Tool } from "../types";
@@ -21,6 +21,8 @@ const ERASER_SIZES = [8, 14, 28];
 export function Toolbar() {
   const tool = useStore((s) => s.tool);
   const setTool = useStore((s) => s.setTool);
+  const penOnly = useStore((s) => s.settings.penOnly);
+  const setSettings = useStore((s) => s.setSettings);
 
   return (
     <div className="toolbar float-ui" onPointerDown={(e) => e.stopPropagation()}>
@@ -38,6 +40,16 @@ export function Toolbar() {
         <button className={`tool-btn ai ${tool === "ai" ? "active" : ""}`} onClick={() => setTool("ai")} data-tip="AI 풀이: 문제를 둘러싸세요 (A)">
           <Sparkles size={18} />
           <span>AI 풀이</span>
+        </button>
+        <span className="divider" />
+        <button
+          className={`tool-btn pen-only ${penOnly ? "on" : ""}`}
+          onClick={() => setSettings({ penOnly: !penOnly, penOnlyTouched: true })}
+          data-tip={penOnly ? "펜 전용: 손가락은 이동·확대만 (켜짐)" : "펜 전용 꺼짐: 손가락으로도 필기"}
+          aria-pressed={penOnly}
+        >
+          {penOnly ? <PenLine size={16} /> : <Pointer size={16} />}
+          <span>{penOnly ? "펜 전용" : "손가락 필기"}</span>
         </button>
       </div>
       <ToolOptions />

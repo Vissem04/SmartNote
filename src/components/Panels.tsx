@@ -218,11 +218,11 @@ export function SettingsPanel() {
         <h3>입력</h3>
         <label className="row-toggle">
           <span>
-            <b>펜 전용 모드</b>
-            <small>스타일러스로만 필기하고 손가락은 화면 이동·확대에 사용 (손바닥 인식 방지). 펜이 감지되면 자동으로 켜집니다.</small>
+            <b>펜 전용 모드 (S펜 등)</b>
+            <small>글씨는 펜으로만 써지고, 손가락은 화면 이동(한 손가락)·확대(두 손가락)만 합니다. 펜을 쓰는 동안 닿는 손바닥은 무시합니다. 펜 버튼을 누른 채 문지르면 지우개로 동작합니다. 펜이 없는 터치 기기에서만 끄세요.</small>
           </span>
           <span className="switch">
-            <input type="checkbox" checked={settings.penOnly} onChange={(e) => st().setSettings({ penOnly: e.target.checked })} />
+            <input type="checkbox" checked={settings.penOnly} onChange={(e) => st().setSettings({ penOnly: e.target.checked, penOnlyTouched: true })} />
             <span />
           </span>
         </label>

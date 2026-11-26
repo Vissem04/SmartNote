@@ -28,6 +28,7 @@ function TableViewInner({ table: t, pageId, tool, editingKey }: Props) {
   /** 행/열 경계 드래그로 크기 조절 */
   const startResize = (e: React.PointerEvent, axis: "col" | "row", idx: number) => {
     if (e.button !== 0) return;
+    if (e.pointerType === "touch" && useStore.getState().settings.penOnly) return; // 손가락은 화면 이동으로
     e.stopPropagation();
     e.preventDefault();
     const el = e.currentTarget as HTMLElement;
