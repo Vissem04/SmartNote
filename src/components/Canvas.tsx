@@ -37,7 +37,7 @@ type Drag =
   | { kind: "lasso"; pts: XY[]; purpose: "select" | "ai" | "convert" }
   | { kind: "move"; start: XY; orig: NoteObj[]; moved: boolean }
   | { kind: "scale"; origin: XY; start: XY; orig: NoteObj[] }
-  | { kind: "pan"; sx: number; sy: number; vx: number; vy: number }
+  | { kind: "pan"; sx: number; sy: number; vx: number; vy: number; lockAxis: boolean; axis: "x" | "y" | null; samples: { t: number; x: number; y: number }[] }
   | { kind: "pinch" };
 
 /* ---------------- 개별 객체 (memo) ---------------- */
@@ -165,10 +165,50 @@ function PageCanvas({ page }: { page: Page }) {
     const p = pageRef.current;
     const pad = 140;
     const loY = Math.min(wrap.clientHeight - p.height * v.z - pad, pad), hiY = Math.max(wrap.clientHeight - p.height * v.z - pad, pad);
-    const loX = Math.min(wrap.clientWidth - p.width * v.z - pad, pad), hiX = Math.max(wrap.clientWidth - p.width * v.z - pad, pad);
     v.y = clamp(v.y, loY, hiY);
-    v.x = clamp(v.x, loX, hiX);
+    const W = wrap.clientWidth, pw = p.width * v.z;
+    if (pw <= W - 16) {
+      // 페이지가 화면 폭에 다 들어오면 좌우는 항상 가운데에 고정
+      v.x = (W - pw) / 2;
+    } else {
+      const side = 24; // 확대했을 때도 좌우로는 페이지 가장자리까지만
+      v.x = clamp(v.x, W - pw - side, side);
+    }
   };
+
+  /* ----- 관성 스크롤 ----- */
+  const momentum = useRef<number | null>(null);
+  const stopMomentum = () => {
+    if (momentum.current !== null) cancelAnimationFrame(momentum.current);
+    momentum.current = null;
+  };
+  const startMomentum = (velX: number, velY: number) => {
+    stopMomentum();
+    if (Math.hypot(velX, velY) < 0.25) return;
+    // 너무 세게 튕겨도 과하게 날아가지 않도록 속도 상한 (px/ms)
+    const MAX = 3.5;
+    velX = clamp(velX, -MAX, MAX);
+    velY = clamp(velY, -MAX, MAX);
+    let last = performance.now();
+    const step = (now: number) => {
+      const dt = Math.min(32, now - last);
+      last = now;
+      const v = view.current;
+      const bx = v.x, by = v.y;
+      v.x += velX * dt;
+      v.y += velY * dt;
+      applyView();
+      // 끝에 닿으면 그 방향 속도는 멈춤
+      if (Math.abs(v.x - (bx + velX * dt)) > 0.5) velX = 0;
+      if (Math.abs(v.y - (by + velY * dt)) > 0.5) velY = 0;
+      const decay = Math.pow(0.94, dt / 16);
+      velX *= decay;
+      velY *= decay;
+      momentum.current = Math.hypot(velX, velY) > 0.03 ? requestAnimationFrame(step) : null;
+    };
+    momentum.current = requestAnimationFrame(step);
+  };
+  useEffect(() => stopMomentum, []);
 
   /* ----- 뷰포트 ----- */
   const applyView = useCallback(() => {
@@ -238,14 +278,29 @@ function PageCanvas({ page }: { page: Page }) {
       if (e.ctrlKey || e.metaKey) {
         zoomAt(view.current.z * Math.exp(-e.deltaY * 0.0025), e.clientX - r.left, e.clientY - r.top);
       } else {
-        view.current.x -= e.shiftKey ? e.deltaY : e.deltaX;
-        view.current.y -= e.shiftKey ? 0 : e.deltaY;
+        stopMomentum();
+        let dx = e.shiftKey ? e.deltaY : e.deltaX;
+        let dy = e.shiftKey ? 0 : e.deltaY;
+        // 주로 세로로 굴리는 중이면 가로 성분 무시, 주로 가로면 세로 무시 (트랙패드 흔들림 방지)
+        if (Math.abs(dx) < Math.abs(dy) * 0.6) dx = 0;
+        else if (Math.abs(dy) < Math.abs(dx) * 0.6) dy = 0;
+        view.current.x -= dx;
+        view.current.y -= dy;
         applyView();
       }
     };
     wrap.addEventListener("wheel", onWheel, { passive: false });
     return () => wrap.removeEventListener("wheel", onWheel);
   }, [applyView, zoomAt]);
+
+  /* ----- 화면 크기 변화(사이드바·회전) → 좌우 가운데 다시 맞춤 ----- */
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => applyView());
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [applyView]);
 
   /* ----- 스페이스바 누르는 동안 손 도구 ----- */
   useEffect(() => {
@@ -409,6 +464,7 @@ function PageCanvas({ page }: { page: Page }) {
   const onPointerDown = (e: React.PointerEvent) => {
     const wrap = wrapRef.current!;
     if ((e.target as HTMLElement).closest(".float-ui")) return;
+    stopMomentum(); // 미끄러지는 중이면 닿는 순간 멈춤
     const st = useStore.getState();
     const isTouch = e.pointerType === "touch";
 
@@ -470,7 +526,18 @@ function PageCanvas({ page }: { page: Page }) {
 
     if (e.button === 1 || e.button === 2 || spaceDown.current || st.tool === "hand" || touchNavigates) {
       e.preventDefault();
-      drag.current = { kind: "pan", sx: e.clientX, sy: e.clientY, vx: view.current.x, vy: view.current.y };
+      stopMomentum();
+      // 손가락·펜으로 끌 때는 방향 잠금 (마우스 손 도구는 자유 이동)
+      drag.current = {
+        kind: "pan",
+        sx: e.clientX,
+        sy: e.clientY,
+        vx: view.current.x,
+        vy: view.current.y,
+        lockAxis: e.pointerType !== "mouse",
+        axis: null,
+        samples: [{ t: performance.now(), x: e.clientX, y: e.clientY }],
+      };
       dragPointer.current = e.pointerId;
       wrap.classList.add("panning");
       return;
@@ -659,11 +726,23 @@ function PageCanvas({ page }: { page: Page }) {
         applyView();
         break;
       }
-      case "pan":
-        view.current.x = d.vx + (e.clientX - d.sx);
-        view.current.y = d.vy + (e.clientY - d.sy);
+      case "pan": {
+        let dx = e.clientX - d.sx;
+        let dy = e.clientY - d.sy;
+        if (d.lockAxis) {
+          // 처음 움직인 방향으로 잠금: 확실히 가로(가로가 세로의 2배 이상)일 때만 가로, 나머지는 세로
+          if (!d.axis && Math.hypot(dx, dy) > 8) d.axis = Math.abs(dx) > Math.abs(dy) * 2 ? "x" : "y";
+          if (d.axis !== "x") dx = 0;
+          if (d.axis !== "y") dy = 0;
+        }
+        view.current.x = d.vx + dx;
+        view.current.y = d.vy + dy;
+        const now = performance.now();
+        d.samples.push({ t: now, x: e.clientX, y: e.clientY });
+        while (d.samples.length > 2 && now - d.samples[0].t > 100) d.samples.shift();
         applyView();
         break;
+      }
       case "draw": {
         const evs = typeof e.nativeEvent.getCoalescedEvents === "function" ? e.nativeEvent.getCoalescedEvents() : [];
         const list = evs.length ? evs : [e.nativeEvent];
@@ -726,6 +805,18 @@ function PageCanvas({ page }: { page: Page }) {
     if (d && d.kind !== "pinch" && dragPointer.current !== null && e.pointerId !== dragPointer.current) return;
     wrapRef.current?.classList.remove("panning");
     if (!d) return;
+    if (d.kind === "pan" && d.lockAxis) {
+      // 튕기듯 놓으면 잠긴 방향으로 관성 스크롤
+      const s = d.samples;
+      const a = s[0], b = s[s.length - 1];
+      const dt = b.t - a.t;
+      if (dt > 0 && performance.now() - b.t < 60) {
+        let velX = (b.x - a.x) / dt, velY = (b.y - a.y) / dt;
+        if (d.axis !== "x") velX = 0;
+        if (d.axis !== "y") velY = 0;
+        startMomentum(velX, velY);
+      }
+    }
     if (d.kind === "pinch") {
       if ([...pointers.current.values()].filter((p) => p.type === "touch").length < 2) {
         drag.current = null;
