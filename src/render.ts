@@ -24,7 +24,7 @@ function loadImage(src: string) {
 function drawTemplate(ctx: CanvasRenderingContext2D, t: Template, w: number, h: number) {
   ctx.save();
   if (t === "lined") {
-    ctx.strokeStyle = "#cfdcf0";
+    ctx.strokeStyle = "#dadada";
     ctx.lineWidth = 1;
     for (let y = 120; y < h; y += TEMPLATE_SPACING.lined) {
       ctx.beginPath();
@@ -32,13 +32,13 @@ function drawTemplate(ctx: CanvasRenderingContext2D, t: Template, w: number, h: 
       ctx.lineTo(w, y);
       ctx.stroke();
     }
-    ctx.strokeStyle = "#f2c4c4";
+    ctx.strokeStyle = "#bdbdbd";
     ctx.beginPath();
     ctx.moveTo(72, 0);
     ctx.lineTo(72, h);
     ctx.stroke();
   } else if (t === "grid") {
-    ctx.strokeStyle = "#e3e8f0";
+    ctx.strokeStyle = "#e4e4e4";
     ctx.lineWidth = 1;
     const s = TEMPLATE_SPACING.grid;
     for (let x = s; x < w; x += s) {
@@ -54,7 +54,7 @@ function drawTemplate(ctx: CanvasRenderingContext2D, t: Template, w: number, h: 
       ctx.stroke();
     }
   } else if (t === "dot") {
-    ctx.fillStyle = "#c5ccd8";
+    ctx.fillStyle = "#c2c2c2";
     const s = TEMPLATE_SPACING.dot;
     for (let x = s; x < w; x += s) for (let y = s; y < h; y += s) ctx.fillRect(x - 1, y - 1, 2, 2);
   }
@@ -172,13 +172,13 @@ export async function renderPage(page: Page, scale = 1, withTemplate = true): Pr
     ctx.font = `14px ${FONT_FAMILY}`;
     const lines = wrapText(ctx, body, a.w - 24).slice(0, 60);
     const h = 40 + lines.length * 20;
-    ctx.fillStyle = "#f3f6ff";
-    ctx.strokeStyle = "#7c8cf8";
+    ctx.fillStyle = "#f4f4f4";
+    ctx.strokeStyle = "#9a9a9a";
     ctx.beginPath();
     ctx.roundRect(a.x, a.y, a.w, h, 12);
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = "#4f5bd5";
+    ctx.fillStyle = "#111111";
     ctx.font = `600 14px ${FONT_FAMILY}`;
     ctx.fillText("AI 풀이", a.x + 12, a.y + 24);
     ctx.fillStyle = "#1f2328";

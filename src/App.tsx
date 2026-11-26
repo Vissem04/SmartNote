@@ -53,6 +53,11 @@ export default function App() {
         e.shiftKey ? st.redo() : st.undo();
         return;
       }
+      if (mod && e.key === "\\") {
+        e.preventDefault();
+        st.toggleSidebar();
+        return;
+      }
       if (mod && k === "y") {
         e.preventDefault();
         st.redo();
@@ -134,6 +139,8 @@ export default function App() {
   return (
     <div className={`app ${sidebarOpen ? "" : "no-sidebar"}`}>
       <Sidebar />
+      {/* 좁은 화면: 사이드바 바깥을 누르면 닫기 */}
+      {sidebarOpen && <div className="sidebar-backdrop" onPointerDown={() => useStore.getState().toggleSidebar()} />}
       <main className="main">
         <TopBar />
         <div className="stage">

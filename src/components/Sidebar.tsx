@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookMarked, Copy, FileText, MoreHorizontal, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { PanelLeftClose, BookMarked, Copy, FileText, MoreHorizontal, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useStore } from "../store";
 import type { Page } from "../types";
 import { pageThumbnail } from "../render";
-import { timeAgo } from "../util";
+import { modKey, timeAgo } from "../util";
 
 export function Sidebar() {
   const notebooks = useStore((s) => s.notebooks);
@@ -40,6 +40,9 @@ export function Sidebar() {
           <BookMarked size={18} />
         </div>
         <span>SmartNote</span>
+        <button className="icon-btn sm hide-sidebar" title={`사이드바 숨기기 (${modKey}+\\)`} onClick={() => useStore.getState().toggleSidebar()}>
+          <PanelLeftClose size={17} />
+        </button>
       </div>
 
       <div className="search">
@@ -164,7 +167,10 @@ function PageList({ notebookId }: { notebookId: string }) {
               setDragId(null);
               setOverIdx(null);
             }}
-            onClick={() => st().openPage(pid)}
+            onClick={() => {
+              st().openPage(pid);
+              if (window.innerWidth <= 900 && st().sidebarOpen) st().toggleSidebar();
+            }}
           >
             <Thumb page={p} />
             <div className="page-meta">

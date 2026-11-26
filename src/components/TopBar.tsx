@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { BookOpen, Check, ChevronDown, Download, FileImage, FileText, ImagePlus, Loader2, Maximize2, Minus, Moon, PanelLeft, Plus, Redo2, Settings, Sun, Undo2 } from "lucide-react";
-import { useStore, activeNotebook, activePage } from "../store";
+import { useStore, activeNotebook, activePage, PAGE_H } from "../store";
+import { objBBox } from "../geometry";
 import { useView, viewApi } from "../viewport";
 import type { Template } from "../types";
 import { renderPage } from "../render";
@@ -18,6 +19,7 @@ export function TopBar() {
   const nb = useStore(activeNotebook);
   const page = useStore(activePage);
   const saveState = useStore((s) => s.saveState);
+  const sidebarOpen = useStore((s) => s.sidebarOpen);
   const canUndo = useStore((s) => (s.activePageId ? (s.history[s.activePageId]?.undo.length ?? 0) > 0 : false));
   const canRedo = useStore((s) => (s.activePageId ? (s.history[s.activePageId]?.redo.length ?? 0) > 0 : false));
   const zoom = useView((s) => s.zoom);
@@ -48,12 +50,26 @@ export function TopBar() {
       const { jsPDF } = await import("jspdf");
       const pages = nb.pageIds.map((id) => st().pages[id]).filter(Boolean);
       let doc: InstanceType<typeof jsPDF> | null = null;
+      const scale = 1.5;
       for (const p of pages) {
-        const c = await renderPage(p, 1.5);
-        const orient = p.width > p.height ? "l" : "p";
-        if (!doc) doc = new jsPDF({ orientation: orient, unit: "px", format: [p.width, p.height], hotfixes: ["px_scaling"] });
-        else doc.addPage([p.width, p.height], orient);
-        doc.addImage(c.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, p.width, p.height);
+        const full = await renderPage(p, scale);
+        // 아래로 이어진 쪽을 PDF 한 장씩으로 나눔 (내용 없는 마지막 빈 쪽은 생략)
+        for (let top = 0; top < p.height; top += PAGE_H) {
+          const h = Math.min(PAGE_H, p.height - top);
+          const hasContent = p.objects.some((o) => {
+            const b = objBBox(o);
+            return b.y < top + h && b.y + b.h > top;
+          });
+          if (top > 0 && !hasContent) continue;
+          const chunk = document.createElement("canvas");
+          chunk.width = full.width;
+          chunk.height = Math.round(h * scale);
+          chunk.getContext("2d")!.drawImage(full, 0, Math.round(top * scale), full.width, chunk.height, 0, 0, full.width, chunk.height);
+          const orient = p.width > h ? "l" : "p";
+          if (!doc) doc = new jsPDF({ orientation: orient, unit: "px", format: [p.width, h], hotfixes: ["px_scaling"] });
+          else doc.addPage([p.width, h], orient);
+          doc.addImage(chunk.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, p.width, h);
+        }
       }
       if (doc) await saveFile(doc.output("blob"), `${nb.title}.pdf`);
     } catch (e) {
@@ -66,7 +82,7 @@ export function TopBar() {
 
   return (
     <header className="topbar">
-      <button className="icon-btn" title="사이드바" onClick={() => st().toggleSidebar()}>
+      <button className="icon-btn" title={`사이드바 ${sidebarOpen ? "숨기기" : "보이기"} (${modKey}+\\)`} onClick={() => st().toggleSidebar()}>
         <PanelLeft size={18} />
       </button>
       <div className="crumb">

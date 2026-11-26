@@ -8,7 +8,7 @@ export const PAGE_H = 1600;
 
 export const PEN_COLORS = ["#1f2328", "#2156d1", "#d1302f", "#1d8a4e", "#8a3ffc", "#e0761a"];
 export const HL_COLORS = ["#ffe066", "#8ce99a", "#74c0fc", "#ffa8c5", "#ffc078"];
-export const NOTEBOOK_COLORS = ["#4f6bed", "#e8590c", "#2f9e44", "#ae3ec9", "#1098ad", "#e03131", "#f08c00"];
+export const NOTEBOOK_COLORS = ["#111111", "#4a4a4a", "#7a7a7a", "#2e2e2e", "#a0a0a0", "#5e5e5e", "#8c8c8c"];
 
 interface ToolStyle {
   color: string;
@@ -109,6 +109,16 @@ function loadSettings(): Settings {
   }
 }
 
+function loadSidebarOpen() {
+  if (typeof window === "undefined") return true;
+  if (window.innerWidth <= 900) return false;
+  try {
+    return localStorage.getItem("smartnote:sidebar") !== "closed";
+  } catch {
+    return true;
+  }
+}
+
 function newPage(notebookId: string, title: string, template: Template = "lined"): Page {
   const now = Date.now();
   return { id: uid(), notebookId, title, template, width: PAGE_W, height: PAGE_H, objects: [], createdAt: now, updatedAt: now };
@@ -133,7 +143,7 @@ function sampleObjects(): NoteObj[] {
       y: 140,
       w: 1000,
       fontSize: 19,
-      color: "#3b4250",
+      color: "#2b2b2b",
       text:
         "✦ AI 풀이 (A): 문제와 내 풀이를 펜으로 둘러싸면 AI가 답을 옆에 적고, 내 답이 맞는지 채점해 줍니다.\n" +
         "✦ 텍스트 변환 (C): 손글씨를 둘러싸면 컴퓨터 글자로 바꿔 줍니다. 결과를 확인·수정한 뒤 적용하세요.\n" +
@@ -161,7 +171,7 @@ function sampleObjects(): NoteObj[] {
       vRemoved: ["0,0", "0,1"],
       hRemoved: [],
       cells: { "0,0": "병합된 제목 행 (지우개로 선을 지워서 병합)", "1,0": "개념", "1,1": "공식", "1,2": "비고" },
-      color: "#3b4250",
+      color: "#2b2b2b",
       fontSize: 16,
     },
   ];
@@ -222,7 +232,7 @@ export const useStore = create<State>()((set, get) => ({
   saveState: "saved",
   toasts: [],
   panel: null,
-  sidebarOpen: typeof window !== "undefined" ? window.innerWidth > 900 : true,
+  sidebarOpen: loadSidebarOpen(),
 
   async init() {
     let loadedData: Awaited<ReturnType<typeof loadAll>> = { meta: undefined, pages: {} };
@@ -407,7 +417,7 @@ export const useStore = create<State>()((set, get) => ({
   extendPage(pageId) {
     const s = get();
     const p = s.pages[pageId];
-    set({ pages: { ...s.pages, [pageId]: { ...p, height: p.height + 800 } } });
+    set({ pages: { ...s.pages, [pageId]: { ...p, height: p.height + PAGE_H } } });
     scheduleSave();
   },
 
@@ -536,7 +546,14 @@ export const useStore = create<State>()((set, get) => ({
   },
 
   toggleSidebar() {
-    set({ sidebarOpen: !get().sidebarOpen });
+    const sidebarOpen = !get().sidebarOpen;
+    set({ sidebarOpen });
+    try {
+      // 넓은 화면에서의 선택만 기억 (좁은 화면은 항상 닫힌 상태로 시작)
+      if (window.innerWidth > 900) localStorage.setItem("smartnote:sidebar", sidebarOpen ? "open" : "closed");
+    } catch {
+      /* 저장소 없음 */
+    }
   },
 }));
 

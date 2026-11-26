@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
-import { Copy, Pencil, ScanText, AArrowDown, AArrowUp, Grid3x3, Minus, Plus, Rows3, Columns3, Sparkles, Trash2, Ungroup, ArrowDownToLine } from "lucide-react";
-import { useStore, activePage, PEN_COLORS } from "../store";
+import { Copy, Pencil, ScanText, AArrowDown, AArrowUp, Grid3x3, Minus, Plus, Rows3, Columns3, Sparkles, Trash2, Ungroup, FilePlus2 } from "lucide-react";
+import { useStore, activePage, PEN_COLORS, PAGE_H } from "../store";
 import type { ImageObj, NoteObj, Page, Point, StrokeObj, TableObj, TextObj } from "../types";
 import {
   objBBox,
@@ -134,9 +134,47 @@ function PageCanvas({ page }: { page: Page }) {
   const pageRef = useRef(page);
   pageRef.current = page;
 
+  /* ----- 자동 쪽 추가: 마지막 쪽까지 내렸고 그 쪽에 내용이 있으면 아래에 새 쪽을 붙임 ----- */
+  const extendingRef = useRef(false);
+  const maybeExtend = () => {
+    const wrap = wrapRef.current;
+    if (!wrap || extendingRef.current) return;
+    const p = pageRef.current;
+    const v = view.current;
+    const visibleBottom = (wrap.clientHeight - v.y) / v.z;
+    if (visibleBottom < p.height - PAGE_H * 0.08) return; // 아직 끝까지 안 내림
+    const lastTop = Math.max(0, p.height - PAGE_H);
+    // 빈 쪽이 계속 쌓이지 않도록: 마지막 쪽에 뭔가 썼을 때만 추가
+    const used = p.objects.some((o) => {
+      const b = objBBox(o);
+      return b.y + b.h > lastTop + 4;
+    });
+    if (!used) return;
+    extendingRef.current = true;
+    useStore.getState().extendPage(p.id);
+  };
+  useEffect(() => {
+    extendingRef.current = false;
+  }, [page.height]);
+
+  /** 페이지가 화면 밖으로 사라지지 않게 이동 범위 제한 */
+  const clampView = () => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const v = view.current;
+    const p = pageRef.current;
+    const pad = 140;
+    const loY = Math.min(wrap.clientHeight - p.height * v.z - pad, pad), hiY = Math.max(wrap.clientHeight - p.height * v.z - pad, pad);
+    const loX = Math.min(wrap.clientWidth - p.width * v.z - pad, pad), hiX = Math.max(wrap.clientWidth - p.width * v.z - pad, pad);
+    v.y = clamp(v.y, loY, hiY);
+    v.x = clamp(v.x, loX, hiX);
+  };
+
   /* ----- 뷰포트 ----- */
   const applyView = useCallback(() => {
+    clampView();
     const v = view.current;
+    maybeExtend();
     if (worldRef.current) worldRef.current.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`;
     viewMemory.set(pageRef.current.id, { ...v });
     if (useView.getState().zoom !== v.z) useView.setState({ zoom: v.z });
@@ -526,7 +564,7 @@ function PageCanvas({ page }: { page: Page }) {
           vRemoved: [],
           hRemoved: [],
           cells: {},
-          color: "#3b4250",
+          color: "#2b2b2b",
           fontSize: 16,
         };
         st.updateObjects(pid, (objs) => [...objs, t]);
@@ -976,8 +1014,15 @@ function PageCanvas({ page }: { page: Page }) {
 
           <ConvertPanel pageId={pid} pageWidth={page.width} pageHeight={page.height} />
 
+          {/* 쪽 구분선 (한 노트 페이지 안에서 아래로 이어지는 쪽) */}
+          {Array.from({ length: Math.max(0, Math.ceil(page.height / PAGE_H) - 1) }, (_, i) => (
+            <div key={i} className="page-break" style={{ top: (i + 1) * PAGE_H }}>
+              <span>{i + 2}</span>
+            </div>
+          ))}
+
           <button className="extend-page float-ui" onClick={() => useStore.getState().extendPage(pid)}>
-            <ArrowDownToLine size={14} /> 페이지 아래로 늘리기
+            <FilePlus2 size={14} /> 다음 쪽 추가 · 쓰고 내리면 자동으로 추가돼요
           </button>
         </div>
       </div>
@@ -991,7 +1036,7 @@ function templateStyle(page: Page): React.CSSProperties {
   switch (page.template) {
     case "lined":
       return {
-        backgroundImage: `linear-gradient(to right, transparent 71px, #f2c4c4 71px, #f2c4c4 72px, transparent 72px), repeating-linear-gradient(to bottom, transparent 0, transparent ${TEMPLATE_SPACING.lined - 1}px, #cfdcf0 ${TEMPLATE_SPACING.lined - 1}px, #cfdcf0 ${TEMPLATE_SPACING.lined}px)`,
+        backgroundImage: `linear-gradient(to right, transparent 71px, #bdbdbd 71px, #bdbdbd 72px, transparent 72px), repeating-linear-gradient(to bottom, transparent 0, transparent ${TEMPLATE_SPACING.lined - 1}px, #dadada ${TEMPLATE_SPACING.lined - 1}px, #dadada ${TEMPLATE_SPACING.lined}px)`,
         backgroundPosition: `0 0, 0 ${120 - TEMPLATE_SPACING.lined + 1}px`,
         backgroundRepeat: "no-repeat, repeat",
         backgroundSize: "100% 100%, 100% auto",
@@ -999,14 +1044,14 @@ function templateStyle(page: Page): React.CSSProperties {
     case "grid": {
       const s = TEMPLATE_SPACING.grid;
       return {
-        backgroundImage: `linear-gradient(#e3e8f0 1px, transparent 1px), linear-gradient(90deg, #e3e8f0 1px, transparent 1px)`,
+        backgroundImage: `linear-gradient(#e4e4e4 1px, transparent 1px), linear-gradient(90deg, #e4e4e4 1px, transparent 1px)`,
         backgroundSize: `${s}px ${s}px`,
         backgroundPosition: `-1px -1px`,
       };
     }
     case "dot": {
       const s = TEMPLATE_SPACING.dot;
-      return { backgroundImage: `radial-gradient(circle, #c5ccd8 1.1px, transparent 1.3px)`, backgroundSize: `${s}px ${s}px`, backgroundPosition: `${s / 2}px ${s / 2}px` };
+      return { backgroundImage: `radial-gradient(circle, #c2c2c2 1.1px, transparent 1.3px)`, backgroundSize: `${s}px ${s}px`, backgroundPosition: `${s / 2}px ${s / 2}px` };
     }
     default:
       return {};
