@@ -1,0 +1,797 @@
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { getStroke } from "perfect-freehand";
+import { Copy, Grid3x3, Minus, Plus, Rows3, Columns3, Sparkles, Trash2, Ungroup, ArrowDownToLine } from "lucide-react";
+import { useStore, activePage, PEN_COLORS } from "../store";
+import type { ImageObj, NoteObj, Page, Point, StrokeObj, TableObj, TextObj } from "../types";
+import {
+  objBBox,
+  objInLasso,
+  outlineToPath,
+  scaleObj,
+  strokeHit,
+  strokeOptions,
+  strokePath,
+  tableHeight,
+  tableSegmentsHit,
+  tableWidth,
+  translateObj,
+  unionRect,
+} from "../geometry";
+import { TableView } from "./TableView";
+import { AnswerCard } from "./AnswerCard";
+import { useView, viewApi } from "../viewport";
+import { solveRegion } from "../aiSolve";
+import { clamp, uid } from "../util";
+import { FONT_FAMILY, TEMPLATE_SPACING } from "../render";
+
+type XY = [number, number];
+
+type Drag =
+  | { kind: "draw"; points: Point[]; tool: "pen" | "highlighter"; color: string; size: number; simulate: boolean }
+  | { kind: "erase"; last: XY; started: boolean }
+  | { kind: "lasso"; pts: XY[]; purpose: "select" | "ai" }
+  | { kind: "move"; start: XY; orig: NoteObj[]; moved: boolean }
+  | { kind: "scale"; origin: XY; start: XY; orig: NoteObj[] }
+  | { kind: "pan"; sx: number; sy: number; vx: number; vy: number }
+  | { kind: "pinch" };
+
+/* ---------------- 개별 객체 (memo) ---------------- */
+
+const StrokePath = memo(({ s }: { s: StrokeObj }) => <path d={strokePath(s)} fill={s.color} />);
+
+const ImageView = memo(({ o }: { o: ImageObj }) => (
+  <img className="image-obj" src={o.src} style={{ left: o.x, top: o.y, width: o.w, height: o.h }} draggable={false} alt="" />
+));
+
+const TextView = memo(({ o, editing, pageId }: { o: TextObj; editing: boolean; pageId: string }) => {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const style: React.CSSProperties = { left: o.x, top: o.y, width: o.w, fontSize: o.fontSize, color: o.color, fontFamily: FONT_FAMILY };
+  useLayoutEffect(() => {
+    if (!editing) return;
+    const el = ref.current!;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }, [editing]);
+  if (!editing)
+    return (
+      <div className="text-obj" style={style} data-id={o.id}>
+        {o.text}
+      </div>
+    );
+  return (
+    <textarea
+      ref={ref}
+      className="text-obj editing"
+      style={style}
+      defaultValue={o.text}
+      placeholder="텍스트 입력…"
+      onPointerDown={(e) => e.stopPropagation()}
+      onInput={(e) => {
+        const el = e.currentTarget;
+        el.style.height = "auto";
+        el.style.height = el.scrollHeight + "px";
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Escape") e.currentTarget.blur();
+      }}
+      onBlur={(e) => {
+        const text = e.currentTarget.value;
+        const st = useStore.getState();
+        st.setEditing(null);
+        if (!text.trim()) st.updateObjects(pageId, (objs) => objs.filter((x) => x.id !== o.id), false);
+        // 새로 만든 상자는 생성과 입력을 하나의 실행 취소 단계로 묶음
+        else if (text !== o.text) st.updateObjects(pageId, (objs) => objs.map((x) => (x.id === o.id ? { ...x, text } : x)), o.text !== "");
+      }}
+    />
+  );
+});
+
+/* ---------------- 메인 캔버스 ---------------- */
+
+export function Canvas() {
+  const page = useStore(activePage);
+  if (!page) return <div className="canvas-wrap empty" />;
+  return <PageCanvas key={page.id} page={page} />;
+}
+
+const viewMemory = new Map<string, { x: number; y: number; z: number }>();
+
+function PageCanvas({ page }: { page: Page }) {
+  const tool = useStore((s) => s.tool);
+  const selection = useStore((s) => s.selection);
+  const editingId = useStore((s) => s.editingId);
+  const eraserSize = useStore((s) => s.eraserSize);
+
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const worldRef = useRef<HTMLDivElement>(null);
+  const liveRef = useRef<SVGPathElement>(null);
+  const lassoRef = useRef<SVGPathElement>(null);
+  const cursorRef = useRef<SVGCircleElement>(null);
+  const view = useRef({ x: 0, y: 0, z: 1 });
+  const drag = useRef<Drag | null>(null);
+  const pointers = useRef(new Map<number, { x: number; y: number; type: string }>());
+  const pinch = useRef<{ dist: number; cx: number; cy: number; z: number; vx: number; vy: number } | null>(null);
+  const penSeen = useRef(false);
+  const spaceDown = useRef(false);
+  const [aiPending, setAiPending] = useState<XY[] | null>(null);
+
+  const pageRef = useRef(page);
+  pageRef.current = page;
+
+  /* ----- 뷰포트 ----- */
+  const applyView = useCallback(() => {
+    const v = view.current;
+    if (worldRef.current) worldRef.current.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`;
+    viewMemory.set(pageRef.current.id, { ...v });
+    if (useView.getState().zoom !== v.z) useView.setState({ zoom: v.z });
+  }, []);
+
+  const zoomAt = useCallback(
+    (nz: number, cx: number, cy: number) => {
+      const v = view.current;
+      nz = clamp(nz, 0.25, 4);
+      v.x = cx - ((cx - v.x) * nz) / v.z;
+      v.y = cy - ((cy - v.y) * nz) / v.z;
+      v.z = nz;
+      applyView();
+    },
+    [applyView],
+  );
+
+  const fitWidth = useCallback(() => {
+    const wrap = wrapRef.current!;
+    const w = wrap.clientWidth;
+    const z = clamp((w - 64) / pageRef.current.width, 0.25, 1.25);
+    view.current = { x: (w - pageRef.current.width * z) / 2, y: 28, z };
+    applyView();
+  }, [applyView]);
+
+  useLayoutEffect(() => {
+    const saved = viewMemory.get(page.id);
+    if (saved) {
+      view.current = { ...saved };
+      applyView();
+    } else fitWidth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    viewApi.zoomBy = (f) => {
+      const r = wrapRef.current!.getBoundingClientRect();
+      zoomAt(view.current.z * f, r.width / 2, r.height / 2);
+    };
+    viewApi.setZoom = (z) => {
+      const r = wrapRef.current!.getBoundingClientRect();
+      zoomAt(z, r.width / 2, r.height / 2);
+    };
+    viewApi.fitWidth = fitWidth;
+    viewApi.insertImage = (file) => insertImageFile(file);
+  });
+
+  const toPage = (clientX: number, clientY: number): XY => {
+    const r = wrapRef.current!.getBoundingClientRect();
+    const v = view.current;
+    return [(clientX - r.left - v.x) / v.z, (clientY - r.top - v.y) / v.z];
+  };
+
+  /* ----- 휠: 이동 / Ctrl+휠: 확대 ----- */
+  useEffect(() => {
+    const wrap = wrapRef.current!;
+    const onWheel = (e: WheelEvent) => {
+      if ((e.target as HTMLElement).closest(".answer-body") && !e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const r = wrap.getBoundingClientRect();
+      if (e.ctrlKey || e.metaKey) {
+        zoomAt(view.current.z * Math.exp(-e.deltaY * 0.0025), e.clientX - r.left, e.clientY - r.top);
+      } else {
+        view.current.x -= e.shiftKey ? e.deltaY : e.deltaX;
+        view.current.y -= e.shiftKey ? 0 : e.deltaY;
+        applyView();
+      }
+    };
+    wrap.addEventListener("wheel", onWheel, { passive: false });
+    return () => wrap.removeEventListener("wheel", onWheel);
+  }, [applyView, zoomAt]);
+
+  /* ----- 스페이스바 누르는 동안 손 도구 ----- */
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !isTyping(e.target)) {
+        e.preventDefault();
+        if (!spaceDown.current) {
+          spaceDown.current = true;
+          wrapRef.current?.classList.add("space-pan");
+        }
+      }
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        spaceDown.current = false;
+        wrapRef.current?.classList.remove("space-pan");
+      }
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, []);
+
+  /* ----- 이미지 붙여넣기 / 끌어놓기 ----- */
+  const insertImageFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const src = reader.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const r = wrapRef.current!.getBoundingClientRect();
+        const [cx, cy] = toPage(r.left + r.width / 2, r.top + r.height / 2);
+        const maxW = Math.min(640, pageRef.current.width - 80);
+        const s = Math.min(1, maxW / img.width);
+        const w = img.width * s, h = img.height * s;
+        const obj: ImageObj = {
+          id: uid(),
+          type: "image",
+          x: clamp(cx - w / 2, 10, pageRef.current.width - w - 10),
+          y: Math.max(10, cy - h / 2),
+          w,
+          h,
+          src,
+        };
+        const st = useStore.getState();
+        st.updateObjects(pageRef.current.id, (objs) => [...objs, obj]);
+        st.setTool("select");
+        st.setSelection([obj.id]);
+      };
+      img.src = src;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (isTyping(e.target)) return;
+      const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
+      if (file) {
+        e.preventDefault();
+        insertImageFile(file);
+      }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  });
+
+  /* ----- 선택 ----- */
+  const selectedObjs = useMemo(() => page.objects.filter((o) => selection.includes(o.id)), [page.objects, selection]);
+  const selBox = useMemo(() => selectedObjs.reduce<ReturnType<typeof objBBox> | null>((acc, o) => unionRect(acc, objBBox(o)), null), [selectedObjs]);
+
+  const hitTest = (x: number, y: number): NoteObj | null => {
+    const objs = pageRef.current.objects;
+    for (let i = objs.length - 1; i >= 0; i--) {
+      const o = objs[i];
+      if (o.type === "answer") continue;
+      if (o.type === "stroke") {
+        if (strokeHit(o, x, y, x, y, 6 / view.current.z)) return o;
+      } else {
+        const b = objBBox(o);
+        if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return o;
+      }
+    }
+    return null;
+  };
+
+  /* ----- 포인터 이벤트 ----- */
+  const onPointerDown = (e: React.PointerEvent) => {
+    const wrap = wrapRef.current!;
+    if ((e.target as HTMLElement).closest(".float-ui")) return;
+    const st = useStore.getState();
+    if (e.pointerType === "pen") penSeen.current = true;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+    wrap.setPointerCapture(e.pointerId);
+
+    // 펜이 감지되었거나 '펜 전용' 설정이면 손가락은 이동/확대만
+    const touchNavigates = e.pointerType === "touch" && (st.settings.penOnly || penSeen.current);
+    const touches = [...pointers.current.values()].filter((p) => p.type === "touch");
+    if (e.pointerType === "touch" && touches.length === 2) {
+      // 두 손가락 → 확대/이동 (진행 중인 그리기는 취소)
+      cancelLive();
+      const [a, b] = touches;
+      const r = wrap.getBoundingClientRect();
+      pinch.current = {
+        dist: Math.hypot(a.x - b.x, a.y - b.y),
+        cx: (a.x + b.x) / 2 - r.left,
+        cy: (a.y + b.y) / 2 - r.top,
+        z: view.current.z,
+        vx: view.current.x,
+        vy: view.current.y,
+      };
+      drag.current = { kind: "pinch" };
+      return;
+    }
+
+    if (e.button === 1 || e.button === 2 || spaceDown.current || st.tool === "hand" || touchNavigates) {
+      e.preventDefault();
+      drag.current = { kind: "pan", sx: e.clientX, sy: e.clientY, vx: view.current.x, vy: view.current.y };
+      wrap.classList.add("panning");
+      return;
+    }
+    if (e.button !== 0) return;
+    if (st.editingId) {
+      // 편집 중 바깥 클릭 → 편집 종료만
+      (document.activeElement as HTMLElement | null)?.blur();
+      return;
+    }
+
+    const [x, y] = toPage(e.clientX, e.clientY);
+    const pid = pageRef.current.id;
+
+    switch (st.tool) {
+      case "pen":
+      case "highlighter": {
+        const style = st[st.tool];
+        const pressure = e.pointerType === "pen" ? e.pressure || 0.5 : 0.5;
+        drag.current = { kind: "draw", points: [[x, y, pressure]], tool: st.tool, color: style.color, size: style.size, simulate: e.pointerType !== "pen" };
+        renderLive();
+        break;
+      }
+      case "eraser": {
+        drag.current = { kind: "erase", last: [x, y], started: false };
+        eraseAlong(x, y, x, y);
+        break;
+      }
+      case "select": {
+        if (selBox) {
+          const hs = 14 / view.current.z;
+          const hx = selBox.x + selBox.w, hy = selBox.y + selBox.h;
+          if (Math.abs(x - hx) < hs && Math.abs(y - hy) < hs) {
+            st.checkpoint(pid);
+            drag.current = { kind: "scale", origin: [selBox.x, selBox.y], start: [x, y], orig: selectedObjs };
+            return;
+          }
+          if (x >= selBox.x && x <= selBox.x + selBox.w && y >= selBox.y && y <= selBox.y + selBox.h) {
+            drag.current = { kind: "move", start: [x, y], orig: selectedObjs, moved: false };
+            return;
+          }
+        }
+        const hit = hitTest(x, y);
+        if (hit) {
+          st.setSelection([hit.id]);
+          drag.current = { kind: "move", start: [x, y], orig: [hit], moved: false };
+          return;
+        }
+        st.setSelection([]);
+        drag.current = { kind: "lasso", pts: [[x, y]], purpose: "select" };
+        renderLasso();
+        break;
+      }
+      case "ai": {
+        setAiPending(null);
+        drag.current = { kind: "lasso", pts: [[x, y]], purpose: "ai" };
+        renderLasso();
+        break;
+      }
+      case "text": {
+        const hit = hitTest(x, y);
+        if (hit?.type === "text") {
+          st.setEditing(hit.id);
+          return;
+        }
+        const w = Math.min(520, pageRef.current.width - x - 20);
+        const obj: TextObj = { id: uid(), type: "text", x: x - 4, y: y - 14, w: Math.max(160, w), text: "", fontSize: 20, color: st.pen.color, };
+        st.updateObjects(pid, (objs) => [...objs, obj]);
+        st.setEditing(obj.id);
+        e.preventDefault();
+        break;
+      }
+      case "table": {
+        const { rows, cols } = st.tableSize;
+        const cw = 130, rh = 44;
+        const t: TableObj = {
+          id: uid(),
+          type: "table",
+          x: clamp(x, 10, Math.max(10, pageRef.current.width - cw * cols - 10)),
+          y,
+          colWidths: Array(cols).fill(cw),
+          rowHeights: Array(rows).fill(rh),
+          vRemoved: [],
+          hRemoved: [],
+          cells: {},
+          color: "#3b4250",
+          fontSize: 16,
+        };
+        st.updateObjects(pid, (objs) => [...objs, t]);
+        st.setTool("select");
+        st.setSelection([t.id]);
+        st.toast("표를 만들었습니다. 선을 드래그해 크기를, 지우개로 선을 지워 셀을 병합하세요.", "success");
+        break;
+      }
+    }
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const p = pointers.current.get(e.pointerId);
+    if (p) {
+      p.x = e.clientX;
+      p.y = e.clientY;
+    }
+    const [x, y] = toPage(e.clientX, e.clientY);
+    if (cursorRef.current) {
+      cursorRef.current.setAttribute("cx", String(x));
+      cursorRef.current.setAttribute("cy", String(y));
+    }
+    const d = drag.current;
+    if (!d) return;
+    const pid = pageRef.current.id;
+    const st = useStore.getState();
+
+    switch (d.kind) {
+      case "pinch": {
+        const touches = [...pointers.current.values()].filter((t) => t.type === "touch");
+        const pc = pinch.current;
+        if (touches.length < 2 || !pc) return;
+        const [a, b] = touches;
+        const r = wrapRef.current!.getBoundingClientRect();
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        const cx = (a.x + b.x) / 2 - r.left, cy = (a.y + b.y) / 2 - r.top;
+        const nz = clamp((pc.z * dist) / pc.dist, 0.25, 4);
+        view.current.z = nz;
+        view.current.x = cx - ((pc.cx - pc.vx) * nz) / pc.z;
+        view.current.y = cy - ((pc.cy - pc.vy) * nz) / pc.z;
+        applyView();
+        break;
+      }
+      case "pan":
+        view.current.x = d.vx + (e.clientX - d.sx);
+        view.current.y = d.vy + (e.clientY - d.sy);
+        applyView();
+        break;
+      case "draw": {
+        const evs = typeof e.nativeEvent.getCoalescedEvents === "function" ? e.nativeEvent.getCoalescedEvents() : [];
+        const list = evs.length ? evs : [e.nativeEvent];
+        if (e.shiftKey) {
+          // Shift: 직선
+          const [px, py] = toPage(e.clientX, e.clientY);
+          d.points = [d.points[0], [px, py, d.points[0][2]]];
+        } else {
+          for (const ev of list) {
+            const [px, py] = toPage(ev.clientX, ev.clientY);
+            d.points.push([px, py, e.pointerType === "pen" ? ev.pressure || 0.5 : 0.5]);
+          }
+        }
+        renderLive();
+        break;
+      }
+      case "erase": {
+        eraseAlong(d.last[0], d.last[1], x, y);
+        d.last = [x, y];
+        break;
+      }
+      case "lasso": {
+        const last = d.pts[d.pts.length - 1];
+        if (Math.hypot(x - last[0], y - last[1]) > 2 / view.current.z) {
+          d.pts.push([x, y]);
+          renderLasso();
+        }
+        break;
+      }
+      case "move": {
+        const dx = x - d.start[0], dy = y - d.start[1];
+        if (!d.moved) {
+          if (Math.hypot(dx, dy) < 3 / view.current.z) return;
+          st.checkpoint(pid);
+          d.moved = true;
+        }
+        const map = new Map(d.orig.map((o) => [o.id, translateObj(o, dx, dy)]));
+        st.updateObjects(pid, (objs) => objs.map((o) => map.get(o.id) ?? o), false);
+        break;
+      }
+      case "scale": {
+        const [ox, oy] = d.origin;
+        const s0 = Math.hypot(d.start[0] - ox, d.start[1] - oy);
+        const s = clamp(Math.hypot(x - ox, y - oy) / Math.max(1, s0), 0.1, 10);
+        const map = new Map(d.orig.map((o) => [o.id, scaleObj(o, ox, oy, s)]));
+        st.updateObjects(pid, (objs) => objs.map((o) => map.get(o.id) ?? o), false);
+        break;
+      }
+    }
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    const d = drag.current;
+    wrapRef.current?.classList.remove("panning");
+    if (!d) return;
+    if (d.kind === "pinch") {
+      if ([...pointers.current.values()].filter((p) => p.type === "touch").length < 2) {
+        drag.current = null;
+        pinch.current = null;
+      }
+      return;
+    }
+    drag.current = null;
+    const st = useStore.getState();
+    const pid = pageRef.current.id;
+
+    if (d.kind === "draw") {
+      cancelLive();
+      if (d.points.length === 1) d.points.push([d.points[0][0] + 0.1, d.points[0][1] + 0.1, d.points[0][2]]);
+      const stroke: StrokeObj = {
+        id: uid(),
+        type: "stroke",
+        tool: d.tool,
+        color: d.color,
+        size: d.size,
+        points: d.points.map(([x, y, p]) => [round2(x), round2(y), d.simulate ? 0.5 : round2(p)] as Point),
+      };
+      st.updateObjects(pid, (objs) => [...objs, stroke]);
+    } else if (d.kind === "lasso") {
+      clearLasso();
+      if (d.pts.length < 4) return;
+      if (d.purpose === "select") {
+        const ids = pageRef.current.objects.filter((o) => objInLasso(o, d.pts)).map((o) => o.id);
+        st.setSelection(ids);
+      } else {
+        const poly = simplify(d.pts, 1.5);
+        setAiPending(poly);
+        solveRegion(pid, poly).finally(() => setAiPending(null));
+      }
+    }
+  };
+
+  const onDoubleClick = (e: React.MouseEvent) => {
+    const st = useStore.getState();
+    if (st.tool !== "select" && st.tool !== "table" && st.tool !== "text") return;
+    const cell = (e.target as HTMLElement).closest<HTMLElement>("[data-cell]");
+    if (cell) {
+      st.setEditing(`${cell.dataset.table}:${cell.dataset.cell}`);
+      return;
+    }
+    const [x, y] = toPage(e.clientX, e.clientY);
+    const hit = hitTest(x, y);
+    if (hit?.type === "text") st.setEditing(hit.id);
+  };
+
+  /* ----- 지우개: 스트로크 삭제 + 표 선분 지우기(셀 병합) ----- */
+  const eraseAlong = (ax: number, ay: number, bx: number, by: number) => {
+    const d = drag.current;
+    if (!d || d.kind !== "erase") return;
+    const st = useStore.getState();
+    const rad = st.eraserSize / 2;
+    const objs = pageRef.current.objects;
+    let changed = false;
+    const next = objs
+      .filter((o) => {
+        if (o.type === "stroke" && strokeHit(o, ax, ay, bx, by, rad)) {
+          changed = true;
+          return false;
+        }
+        return true;
+      })
+      .map((o) => {
+        if (o.type !== "table") return o;
+        if (Math.max(ax, bx) < o.x - rad || Math.min(ax, bx) > o.x + tableWidth(o) + rad) return o;
+        if (Math.max(ay, by) < o.y - rad || Math.min(ay, by) > o.y + tableHeight(o) + rad) return o;
+        const { v, h } = tableSegmentsHit(o, ax, ay, bx, by, Math.max(rad, 4));
+        const nv = v.filter((k) => !o.vRemoved.includes(k));
+        const nh = h.filter((k) => !o.hRemoved.includes(k));
+        if (!nv.length && !nh.length) return o;
+        changed = true;
+        return { ...o, vRemoved: [...o.vRemoved, ...nv], hRemoved: [...o.hRemoved, ...nh] };
+      });
+    if (!changed) return;
+    if (!d.started) {
+      st.checkpoint(pageRef.current.id);
+      d.started = true;
+    }
+    st.updateObjects(pageRef.current.id, () => next, false);
+  };
+
+  /* ----- 실시간 그리기 미리보기 (React 렌더 없이 DOM 직접 갱신) ----- */
+  const renderLive = () => {
+    const d = drag.current;
+    const el = liveRef.current;
+    if (!d || d.kind !== "draw" || !el) return;
+    const outline = getStroke(d.points, { ...strokeOptions(d.tool, d.size, d.simulate), last: false });
+    el.setAttribute("d", outlineToPath(outline));
+    el.setAttribute("fill", d.color);
+    el.setAttribute("opacity", d.tool === "highlighter" ? "0.4" : "1");
+    el.style.mixBlendMode = d.tool === "highlighter" ? "multiply" : "normal";
+  };
+  const cancelLive = () => {
+    liveRef.current?.setAttribute("d", "");
+    if (drag.current?.kind === "draw") drag.current = null;
+  };
+  const renderLasso = () => {
+    const d = drag.current;
+    if (!d || d.kind !== "lasso" || !lassoRef.current) return;
+    lassoRef.current.setAttribute("d", "M" + d.pts.map((p) => p.join(" ")).join(" L") + (d.pts.length > 2 ? " Z" : ""));
+    lassoRef.current.setAttribute("class", `lasso ${d.purpose}`);
+  };
+  const clearLasso = () => lassoRef.current?.setAttribute("d", "");
+
+  /* ----- 선택 도구 모음 동작 ----- */
+  const pid = page.id;
+  const st = useStore.getState;
+  const singleTable = selectedObjs.length === 1 && selectedObjs[0].type === "table" ? (selectedObjs[0] as TableObj) : null;
+  const strokeSel = selectedObjs.filter((o): o is StrokeObj => o.type === "stroke");
+
+  const delSelection = () => {
+    st().updateObjects(pid, (objs) => objs.filter((o) => !selection.includes(o.id)));
+    st().setSelection([]);
+  };
+  const dupSelection = () => {
+    const copies = selectedObjs.map((o) => ({ ...translateObj(o, 24, 24), id: uid() }));
+    st().updateObjects(pid, (objs) => [...objs, ...copies]);
+    st().setSelection(copies.map((c) => c.id));
+  };
+  const recolor = (color: string) => st().updateObjects(pid, (objs) => objs.map((o) => (selection.includes(o.id) && o.type === "stroke" ? { ...o, color } : o)));
+  const solveSelection = () => {
+    if (!selBox) return;
+    const p = 6;
+    const poly: XY[] = [
+      [selBox.x - p, selBox.y - p],
+      [selBox.x + selBox.w + p, selBox.y - p],
+      [selBox.x + selBox.w + p, selBox.y + selBox.h + p],
+      [selBox.x - p, selBox.y + selBox.h + p],
+    ];
+    st().setSelection([]);
+    solveRegion(pid, poly);
+  };
+  const tableOp = (fn: (t: TableObj) => TableObj) => singleTable && st().updateObjects(pid, (objs) => objs.map((o) => (o.id === singleTable.id ? fn(o as TableObj) : o)));
+
+  const [tableEditId, tableEditKey] = editingId?.includes(":") ? editingId.split(":") : [null, null];
+
+  /* ----- 렌더 ----- */
+  const objs = page.objects;
+  const showCursor = tool === "eraser";
+  const tplStyle = templateStyle(page);
+
+  return (
+    <div
+      ref={wrapRef}
+      className={`canvas-wrap tool-${tool}`}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onDoubleClick={onDoubleClick}
+      onContextMenu={(e) => e.preventDefault()}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        const f = [...e.dataTransfer.files].find((x) => x.type.startsWith("image/"));
+        if (f) insertImageFile(f);
+      }}
+    >
+      <div ref={worldRef} className="world">
+        <div className="page" style={{ width: page.width, height: page.height, ...tplStyle }}>
+          {objs.map((o) => (o.type === "image" ? <ImageView key={o.id} o={o} /> : null))}
+          {objs.map((o) =>
+            o.type === "table" ? <TableView key={o.id} table={o} pageId={pid} tool={tool} editingKey={tableEditId === o.id ? tableEditKey : null} /> : null,
+          )}
+          {objs.map((o) => (o.type === "text" ? <TextView key={o.id} o={o} pageId={pid} editing={editingId === o.id} /> : null))}
+
+          <svg className="ink" width={page.width} height={page.height}>
+            <g className="hl-layer">{objs.map((o) => (o.type === "stroke" && o.tool === "highlighter" ? <StrokePath key={o.id} s={o} /> : null))}</g>
+            <g>{objs.map((o) => (o.type === "stroke" && o.tool === "pen" ? <StrokePath key={o.id} s={o} /> : null))}</g>
+            <path ref={liveRef} />
+          </svg>
+
+          {objs.map((o) => (o.type === "answer" ? <AnswerCard key={o.id} a={o} pageId={pid} /> : null))}
+
+          <svg className="overlay" width={page.width} height={page.height}>
+            <path ref={lassoRef} className="lasso" />
+            {aiPending && <path className="lasso ai pending" d={"M" + aiPending.map((p) => p.join(" ")).join(" L") + " Z"} />}
+            {selBox && tool === "select" && (
+              <>
+                <rect className="sel-box" x={selBox.x - 4} y={selBox.y - 4} width={selBox.w + 8} height={selBox.h + 8} rx={6} />
+                <rect className="sel-handle" x={selBox.x + selBox.w - 7} y={selBox.y + selBox.h - 7} width={14} height={14} rx={4} />
+              </>
+            )}
+            {showCursor && <circle ref={cursorRef} className="eraser-cursor" r={eraserSize / 2} cx={-100} cy={-100} />}
+          </svg>
+
+          {selBox && tool === "select" && !editingId && (
+            <div className="sel-toolbar float-ui" style={{ left: selBox.x + selBox.w / 2, top: selBox.y - 12 }} onPointerDown={(e) => e.stopPropagation()}>
+              {singleTable && (
+                <>
+                  <button title="행 추가" onClick={() => tableOp((t) => ({ ...t, rowHeights: [...t.rowHeights, t.rowHeights[t.rowHeights.length - 1]] }))}>
+                    <Rows3 size={15} />
+                    <Plus size={11} />
+                  </button>
+                  <button title="열 추가" onClick={() => tableOp((t) => ({ ...t, colWidths: [...t.colWidths, t.colWidths[t.colWidths.length - 1]] }))}>
+                    <Columns3 size={15} />
+                    <Plus size={11} />
+                  </button>
+                  <button title="마지막 행 삭제" disabled={singleTable.rowHeights.length < 2} onClick={() => tableOp((t) => ({ ...t, rowHeights: t.rowHeights.slice(0, -1) }))}>
+                    <Rows3 size={15} />
+                    <Minus size={11} />
+                  </button>
+                  <button title="마지막 열 삭제" disabled={singleTable.colWidths.length < 2} onClick={() => tableOp((t) => ({ ...t, colWidths: t.colWidths.slice(0, -1) }))}>
+                    <Columns3 size={15} />
+                    <Minus size={11} />
+                  </button>
+                  <button title="병합 모두 해제 (선 복원)" disabled={!singleTable.vRemoved.length && !singleTable.hRemoved.length} onClick={() => tableOp((t) => ({ ...t, vRemoved: [], hRemoved: [] }))}>
+                    <Ungroup size={15} />
+                  </button>
+                  <button title="셀 크기 균등하게" onClick={() => tableOp((t) => {
+                    const W = tableWidth(t), H = tableHeight(t);
+                    return { ...t, colWidths: t.colWidths.map(() => W / t.colWidths.length), rowHeights: t.rowHeights.map(() => H / t.rowHeights.length) };
+                  })}>
+                    <Grid3x3 size={15} />
+                  </button>
+                  <span className="sep" />
+                </>
+              )}
+              {strokeSel.length > 0 &&
+                PEN_COLORS.slice(0, 5).map((c) => <button key={c} className="swatch-btn" title="색 바꾸기" onClick={() => recolor(c)}><span style={{ background: c }} /></button>)}
+              {strokeSel.length > 0 && <span className="sep" />}
+              <button className="ai-btn" title="선택 영역 AI 풀이" onClick={solveSelection}>
+                <Sparkles size={15} /> 풀이
+              </button>
+              <button title="복제 (Ctrl+D)" onClick={dupSelection}>
+                <Copy size={15} />
+              </button>
+              <button title="삭제 (Delete)" className="danger" onClick={delSelection}>
+                <Trash2 size={15} />
+              </button>
+            </div>
+          )}
+
+          <button className="extend-page float-ui" onClick={() => useStore.getState().extendPage(pid)}>
+            <ArrowDownToLine size={14} /> 페이지 아래로 늘리기
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- 보조 함수 ---------------- */
+
+function templateStyle(page: Page): React.CSSProperties {
+  switch (page.template) {
+    case "lined":
+      return {
+        backgroundImage: `linear-gradient(to right, transparent 71px, #f2c4c4 71px, #f2c4c4 72px, transparent 72px), repeating-linear-gradient(to bottom, transparent 0, transparent ${TEMPLATE_SPACING.lined - 1}px, #cfdcf0 ${TEMPLATE_SPACING.lined - 1}px, #cfdcf0 ${TEMPLATE_SPACING.lined}px)`,
+        backgroundPosition: `0 0, 0 ${120 - TEMPLATE_SPACING.lined + 1}px`,
+        backgroundRepeat: "no-repeat, repeat",
+        backgroundSize: "100% 100%, 100% auto",
+      };
+    case "grid": {
+      const s = TEMPLATE_SPACING.grid;
+      return {
+        backgroundImage: `linear-gradient(#e3e8f0 1px, transparent 1px), linear-gradient(90deg, #e3e8f0 1px, transparent 1px)`,
+        backgroundSize: `${s}px ${s}px`,
+        backgroundPosition: `-1px -1px`,
+      };
+    }
+    case "dot": {
+      const s = TEMPLATE_SPACING.dot;
+      return { backgroundImage: `radial-gradient(circle, #c5ccd8 1.1px, transparent 1.3px)`, backgroundSize: `${s}px ${s}px`, backgroundPosition: `${s / 2}px ${s / 2}px` };
+    }
+    default:
+      return {};
+  }
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+export function isTyping(t: EventTarget | null) {
+  const el = t as HTMLElement | null;
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable || el.tagName === "SELECT");
+}
+
+/** 점 간격이 tol 미만이면 생략 (다각형 단순화) */
+function simplify(pts: XY[], tol: number): XY[] {
+  const out: XY[] = [pts[0]];
+  for (const p of pts) {
+    const l = out[out.length - 1];
+    if (Math.hypot(p[0] - l[0], p[1] - l[1]) >= tol) out.push(p);
+  }
+  return out.map(([x, y]) => [round2(x), round2(y)]);
+}
