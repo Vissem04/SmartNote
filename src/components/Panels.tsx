@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, BookOpen, CheckCircle2, FileImage, FileText, KeyRound, Loader2, Trash2, UploadCloud, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, BookOpen, CheckCircle2, FileImage, FileText, FolderOpen, KeyRound, Loader2, Trash2, UploadCloud, X } from "lucide-react";
 import { useStore, activeNotebook } from "../store";
 import type { Material, Settings } from "../types";
 import { deleteMaterial, health, uploadMaterial } from "../api";
@@ -46,6 +46,10 @@ export function MaterialsPanel() {
   const materials = useMemo(() => allMaterials.filter((m) => m.notebookId === nb?.id), [allMaterials, nb?.id]);
   const settings = useStore((s) => s.settings);
   const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  /** 시스템 파일 선택 창 열기 (태블릿·휴대폰에서는 끌어놓기가 어려우므로 기본 경로) */
+  const openPicker = () => fileRef.current?.click();
+  const touchFirst = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
   const st = useStore.getState;
 
   const addFiles = async (files: FileList | File[]) => {
@@ -72,10 +76,25 @@ export function MaterialsPanel() {
   return (
     <Modal title="강의자료" icon={<BookOpen size={20} className="accent-ic" />} onClose={() => st().setPanel(null)} wide>
       <p className="modal-desc">
-        <b>{nb?.title}</b> 노트에 첨부한 자료는 AI가 문제를 풀 때 참고합니다. 자료의 정의·표기법·공식을 따라 풀기 때문에 수업 방식과 같은 풀이를 얻을 수 있어요. 같은 자료로 반복해서 풀면 캐시가 적용되어 더 빠르고 저렴합니다.
+        <b>{nb?.title}</b> 노트에 첨부한 자료는 AI가 문제를 풀 때 참고합니다. 자료의 정의·표기법·공식을 따라 풀기 때문에 수업 방식과 같은 풀이를 얻을 수 있어요.{isArtifact ? " PDF는 이 기기에서 글자를 읽어 쪽 번호와 함께 참조합니다." : " 같은 자료로 반복해서 풀면 캐시가 적용되어 더 빠르고 저렴합니다."}
       </p>
-      <label
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        hidden
+        accept="application/pdf,.pdf,text/plain,.txt,text/markdown,.md,image/*"
+        onChange={(e) => {
+          if (e.target.files?.length) addFiles(e.target.files);
+          e.target.value = ""; // 같은 파일을 다시 골라도 동작하도록
+        }}
+      />
+      <div
         className={`dropzone ${dragging ? "over" : ""}`}
+        role="button"
+        tabIndex={0}
+        onClick={openPicker}
+        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), openPicker())}
         onDragOver={(e) => {
           e.preventDefault();
           setDragging(true);
@@ -88,13 +107,29 @@ export function MaterialsPanel() {
         }}
       >
         <UploadCloud size={28} />
-        <b>파일을 끌어놓거나 클릭해서 선택</b>
-        <span>PDF · TXT · MD · PNG/JPG (최대 100MB)</span>
-        <input type="file" multiple hidden accept=".pdf,.txt,.md,image/*" onChange={(e) => e.target.files && addFiles(e.target.files)} />
-      </label>
+        <button
+          type="button"
+          className="btn primary-accent"
+          onClick={(e) => {
+            e.stopPropagation();
+            openPicker();
+          }}
+        >
+          <FolderOpen size={17} /> 파일 열기
+        </button>
+        <span>{touchFirst ? "기기의 파일·드라이브에서 강의자료를 고르세요" : "또는 파일을 여기로 끌어놓으세요"}</span>
+        <span className="muted">PDF · TXT · MD · 이미지(PNG/JPG) · 최대 100MB · 여러 개 선택 가능</span>
+      </div>
 
       <div className="mat-list">
-        {materials.length === 0 && <div className="empty-hint">아직 첨부된 자료가 없습니다.</div>}
+        {materials.length === 0 && (
+          <div className="empty-hint">
+            아직 첨부된 자료가 없습니다.{" "}
+            <button type="button" className="link-btn" onClick={openPicker}>
+              파일 열기
+            </button>
+          </div>
+        )}
         {materials.map((m) => (
           <div key={m.id} className={`mat ${m.status}`}>
             <div className="mat-ic">{m.kind === "image" ? <FileImage size={18} /> : <FileText size={18} />}</div>
