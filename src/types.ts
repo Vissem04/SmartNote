@@ -104,13 +104,25 @@ export interface Material {
   createdAt: number;
 }
 
-export type Tool = "select" | "pen" | "highlighter" | "eraser" | "text" | "table" | "ai" | "hand";
+export type Tool = "select" | "pen" | "highlighter" | "eraser" | "text" | "table" | "ai" | "convert" | "hand";
 
 export interface Settings {
   apiKey: string;
   effort: "low" | "medium" | "high" | "xhigh";
   theme: "light" | "dark" | "system";
   penOnly: boolean;
+}
+
+/** 손글씨 → 텍스트 변환 미리보기 */
+export interface Conversion {
+  pageId: string;
+  strokeIds: string[];
+  rect: Rect;
+  status: "loading" | "ready" | "error";
+  text: string;
+  error?: string;
+  fontSize: number;
+  color: string;
 }
 
 export interface Rect {

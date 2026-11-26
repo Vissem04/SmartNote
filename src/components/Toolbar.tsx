@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Eraser, Hand, Highlighter, Lasso, PenLine, Sparkles, Table2, Type, BookOpen } from "lucide-react";
+import { Eraser, Hand, Highlighter, Lasso, PenLine, ScanText, Sparkles, Table2, Type, BookOpen } from "lucide-react";
 import { useStore, PEN_COLORS, HL_COLORS } from "../store";
 import type { Tool } from "../types";
 
@@ -30,6 +30,10 @@ export function Toolbar() {
           </button>
         ))}
         <span className="divider" />
+        <button className={`tool-btn convert ${tool === "convert" ? "active" : ""}`} onClick={() => setTool("convert")} data-tip="손글씨 → 텍스트: 글씨를 둘러싸세요 (C)">
+          <ScanText size={18} />
+          <span>텍스트 변환</span>
+        </button>
         <button className={`tool-btn ai ${tool === "ai" ? "active" : ""}`} onClick={() => setTool("ai")} data-tip="AI 풀이: 문제를 둘러싸세요 (A)">
           <Sparkles size={18} />
           <span>AI 풀이</span>
@@ -89,6 +93,12 @@ function ToolOptions() {
     );
   if (tool === "table") return <TablePicker />;
   if (tool === "ai") return <AiHint />;
+  if (tool === "convert")
+    return (
+      <div className="tool-options">
+        <span className="hint convert">손글씨를 둘러싸면 컴퓨터 글자로 바꿔요 · 결과를 확인·수정한 뒤 적용</span>
+      </div>
+    );
   if (tool === "select")
     return (
       <div className="tool-options">

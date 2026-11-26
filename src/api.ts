@@ -29,6 +29,18 @@ export async function deleteMaterial(fileId: string, settings: Settings) {
   await fetch(`/api/materials/${encodeURIComponent(fileId)}`, { method: "DELETE", headers: headers(settings, false) }).catch(() => {});
 }
 
+export async function transcribe(image: string, settings: Settings, signal?: AbortSignal): Promise<string> {
+  let r: Response;
+  try {
+    r = await fetch("/api/transcribe", { method: "POST", headers: headers(settings), body: JSON.stringify({ image }), signal });
+  } catch {
+    throw new Error("서버에 연결할 수 없습니다. `npm run dev`로 서버가 실행 중인지 확인하세요.");
+  }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error ?? `변환 실패 (${r.status})`);
+  return data.text ?? "";
+}
+
 export interface SolveHandlers {
   onDelta(text: string): void;
   onDone(): void;

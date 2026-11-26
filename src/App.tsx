@@ -9,8 +9,9 @@ import { viewApi } from "./viewport";
 import { translateObj } from "./geometry";
 import type { NoteObj, Tool } from "./types";
 import { uid } from "./util";
+import { cancelConversion } from "./handwriting";
 
-const TOOL_KEYS: Record<string, Tool> = { p: "pen", h: "highlighter", e: "eraser", v: "select", t: "text", b: "table", a: "ai" };
+const TOOL_KEYS: Record<string, Tool> = { p: "pen", h: "highlighter", e: "eraser", v: "select", t: "text", b: "table", a: "ai", c: "convert" };
 let clipboard: NoteObj[] = [];
 
 export default function App() {
@@ -108,6 +109,7 @@ export default function App() {
         return;
       }
       if (e.key === "Escape") {
+        if (st.conversion) cancelConversion();
         st.setSelection([]);
         st.setPanel(null);
         return;

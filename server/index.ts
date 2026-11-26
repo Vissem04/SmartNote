@@ -5,7 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import Anthropic, { toFile } from "@anthropic-ai/sdk";
-import { SYSTEM_PROMPT, buildUserText } from "./prompt.js";
+import { SYSTEM_PROMPT, TRANSCRIBE_PROMPT, buildUserText } from "./prompt.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -146,6 +146,42 @@ app.post("/api/solve", async (req: Request, res: Response) => {
     }
   } finally {
     res.end();
+  }
+});
+
+/* ---------------- 손글씨 → 텍스트 변환 ---------------- */
+
+app.post("/api/transcribe", async (req: Request, res: Response) => {
+  const { image } = (req.body ?? {}) as { image?: string };
+  if (!image) return void res.status(400).json({ error: "이미지가 없습니다." });
+  try {
+    const msg = await clientFor(req).beta.messages.create({
+      model: MODEL,
+      max_tokens: 8000,
+      system: TRANSCRIBE_PROMPT,
+      // 단순 인식 작업이므로 낮은 effort로 빠르게
+      output_config: { effort: "low" },
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/png", data: image } },
+            { type: "text", text: "이 손글씨를 텍스트로 옮겨 주세요." },
+          ],
+        },
+      ],
+    });
+    if (msg.stop_reason === "refusal") return void res.status(422).json({ error: "이 영역은 변환할 수 없습니다." });
+    const text = msg.content
+      .flatMap((b) => (b.type === "text" ? [b.text] : []))
+      .join("")
+      .trim();
+    res.json({ text: text === "[EMPTY]" ? "" : text });
+  } catch (err) {
+    console.error("[transcribe] failed", err);
+    res.status(500).json({ error: errorMessage(err) });
   }
 });
 

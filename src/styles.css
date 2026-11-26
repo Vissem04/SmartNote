@@ -1065,6 +1065,114 @@ textarea.text-obj.editing {
   width: 80%;
 }
 
+/* ---------------- 손글씨 변환 ---------------- */
+.lasso.convert {
+  fill: rgba(13, 148, 136, 0.07);
+  stroke: #0d9488;
+  stroke-width: 2;
+  animation: march 0.6s linear infinite;
+}
+.convert-target {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  border: 2px dashed #0d9488;
+  border-radius: 10px;
+  background: rgba(13, 148, 136, 0.05);
+}
+.convert-panel {
+  position: absolute;
+  z-index: 9;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid rgba(13, 148, 136, 0.3);
+  border-radius: 14px;
+  box-shadow: 0 10px 32px rgba(13, 100, 90, 0.16), 0 1px 3px rgba(20, 28, 48, 0.08);
+  padding: 8px 12px 12px;
+  animation: cardIn 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+.convert-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 13.5px;
+}
+.convert-head > svg {
+  color: #0d9488;
+}
+.convert-text {
+  width: 100%;
+  resize: vertical;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  font-size: 16px;
+  line-height: 1.5;
+  outline: none;
+}
+.convert-text:focus {
+  border-color: #0d9488;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.14);
+}
+.convert-hint {
+  margin: 6px 2px 10px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.convert-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.btn.primary {
+  background: #0d9488;
+  color: #fff;
+}
+.btn.primary:hover:not(:disabled) {
+  background: #0f766e;
+}
+.btn.primary kbd {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: transparent;
+  color: #fff;
+}
+.convert-skel {
+  padding: 4px 0 6px;
+}
+.tool-btn.convert {
+  padding: 0 12px;
+  font-weight: 700;
+  font-size: 13px;
+  color: #0d9488;
+  background: rgba(13, 148, 136, 0.1);
+  margin-right: 3px;
+}
+.tool-btn.convert.active {
+  color: #fff;
+  background: linear-gradient(135deg, #0d9488, #0891b2);
+  box-shadow: 0 3px 12px rgba(13, 148, 136, 0.4);
+}
+.hint.convert {
+  color: #0d9488;
+  font-weight: 600;
+}
+.sel-toolbar .convert-btn {
+  color: #0d9488;
+  font-weight: 650;
+  gap: 5px;
+}
+.sel-toolbar .convert-btn:hover {
+  background: rgba(13, 148, 136, 0.12) !important;
+}
+.tool-convert {
+  cursor: crosshair;
+}
+
 /* ---------------- 플로팅 툴바 ---------------- */
 .toolbar {
   position: absolute;
@@ -1649,7 +1757,8 @@ kbd {
   .topbar-group.zoom .icon-btn:last-child {
     display: none;
   }
-  .tool-btn.ai span {
+  .tool-btn.ai span,
+  .tool-btn.convert span {
     display: none;
   }
 }

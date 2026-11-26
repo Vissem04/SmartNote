@@ -151,7 +151,7 @@ export async function drawObjects(ctx: CanvasRenderingContext2D, objs: NoteObj[]
  * 경계(다각형) 영역을 PNG로 래스터화. AI 답안 카드는 제외.
  * 반환: base64 (data URL 접두사 없이)
  */
-export async function renderRegion(page: Page, polygon: [number, number][], bbox: Rect): Promise<{ base64: string; dataUrl: string }> {
+export async function renderRegion(page: Page, polygon: [number, number][], bbox: Rect, only?: NoteObj[]): Promise<{ base64: string; dataUrl: string }> {
   const pad = 12;
   const r = { x: bbox.x - pad, y: bbox.y - pad, w: bbox.w + pad * 2, h: bbox.h + pad * 2 };
   const maxSide = 1800;
@@ -169,8 +169,8 @@ export async function renderRegion(page: Page, polygon: [number, number][], bbox
   polygon.forEach(([x, y], i) => (i ? clip.lineTo(x, y) : clip.moveTo(x, y)));
   clip.closePath();
   ctx.save();
-  ctx.clip(clip);
-  await drawObjects(ctx, page.objects.filter((o) => o.type !== "answer"));
+  if (!only) ctx.clip(clip);
+  await drawObjects(ctx, only ?? page.objects.filter((o) => o.type !== "answer"));
   ctx.restore();
   const dataUrl = canvas.toDataURL("image/png");
   return { dataUrl, base64: dataUrl.split(",")[1] };

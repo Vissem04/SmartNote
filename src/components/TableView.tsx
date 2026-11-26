@@ -141,7 +141,7 @@ function CellEditor({ style, value, onDone }: { style: React.CSSProperties; valu
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     const el = ref.current!;
-    el.focus();
+    el.focus({ preventScroll: true });
     el.setSelectionRange(el.value.length, el.value.length);
   }, []);
   return (

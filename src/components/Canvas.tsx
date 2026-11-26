@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
-import { Copy, Grid3x3, Minus, Plus, Rows3, Columns3, Sparkles, Trash2, Ungroup, ArrowDownToLine } from "lucide-react";
+import { Copy, ScanText, Grid3x3, Minus, Plus, Rows3, Columns3, Sparkles, Trash2, Ungroup, ArrowDownToLine } from "lucide-react";
 import { useStore, activePage, PEN_COLORS } from "../store";
 import type { ImageObj, NoteObj, Page, Point, StrokeObj, TableObj, TextObj } from "../types";
 import {
@@ -21,6 +21,8 @@ import { TableView } from "./TableView";
 import { AnswerCard } from "./AnswerCard";
 import { useView, viewApi } from "../viewport";
 import { solveRegion } from "../aiSolve";
+import { convertRegion, cancelConversion } from "../handwriting";
+import { ConvertPanel } from "./ConvertPanel";
 import { clamp, uid } from "../util";
 import { FONT_FAMILY, TEMPLATE_SPACING } from "../render";
 
@@ -29,7 +31,7 @@ type XY = [number, number];
 type Drag =
   | { kind: "draw"; points: Point[]; tool: "pen" | "highlighter"; color: string; size: number; simulate: boolean }
   | { kind: "erase"; last: XY; started: boolean }
-  | { kind: "lasso"; pts: XY[]; purpose: "select" | "ai" }
+  | { kind: "lasso"; pts: XY[]; purpose: "select" | "ai" | "convert" }
   | { kind: "move"; start: XY; orig: NoteObj[]; moved: boolean }
   | { kind: "scale"; origin: XY; start: XY; orig: NoteObj[] }
   | { kind: "pan"; sx: number; sy: number; vx: number; vy: number }
@@ -49,7 +51,7 @@ const TextView = memo(({ o, editing, pageId }: { o: TextObj; editing: boolean; p
   useLayoutEffect(() => {
     if (!editing) return;
     const el = ref.current!;
-    el.focus();
+    el.focus({ preventScroll: true });
     el.setSelectionRange(el.value.length, el.value.length);
     el.style.height = "auto";
     el.style.height = el.scrollHeight + "px";
@@ -368,6 +370,12 @@ function PageCanvas({ page }: { page: Page }) {
         renderLasso();
         break;
       }
+      case "convert": {
+        cancelConversion();
+        drag.current = { kind: "lasso", pts: [[x, y]], purpose: "convert" };
+        renderLasso();
+        break;
+      }
       case "ai": {
         setAiPending(null);
         drag.current = { kind: "lasso", pts: [[x, y]], purpose: "ai" };
@@ -534,6 +542,8 @@ function PageCanvas({ page }: { page: Page }) {
       if (d.purpose === "select") {
         const ids = pageRef.current.objects.filter((o) => objInLasso(o, d.pts)).map((o) => o.id);
         st.setSelection(ids);
+      } else if (d.purpose === "convert") {
+        convertRegion(pid, simplify(d.pts, 1.5));
       } else {
         const poly = simplify(d.pts, 1.5);
         setAiPending(poly);
@@ -659,6 +669,11 @@ function PageCanvas({ page }: { page: Page }) {
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onDoubleClick={onDoubleClick}
+      onScroll={(e) => {
+        // 포커스 등으로 브라우저가 스크롤시키면 원위치 (화면 이동은 transform으로만)
+        e.currentTarget.scrollTop = 0;
+        e.currentTarget.scrollLeft = 0;
+      }}
       onContextMenu={(e) => e.preventDefault()}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
@@ -730,6 +745,15 @@ function PageCanvas({ page }: { page: Page }) {
               {strokeSel.length > 0 &&
                 PEN_COLORS.slice(0, 5).map((c) => <button key={c} className="swatch-btn" title="색 바꾸기" onClick={() => recolor(c)}><span style={{ background: c }} /></button>)}
               {strokeSel.length > 0 && <span className="sep" />}
+              {strokeSel.some((s) => s.tool === "pen") && (
+                <button className="convert-btn" title="손글씨를 텍스트로 변환" onClick={() => {
+                  const ids = strokeSel.filter((s) => s.tool === "pen").map((s) => s.id);
+                  st().setSelection([]);
+                  convertRegion(pid, null, ids);
+                }}>
+                  <ScanText size={15} /> 텍스트로
+                </button>
+              )}
               <button className="ai-btn" title="선택 영역 AI 풀이" onClick={solveSelection}>
                 <Sparkles size={15} /> 풀이
               </button>
@@ -741,6 +765,8 @@ function PageCanvas({ page }: { page: Page }) {
               </button>
             </div>
           )}
+
+          <ConvertPanel pageId={pid} pageWidth={page.width} pageHeight={page.height} />
 
           <button className="extend-page float-ui" onClick={() => useStore.getState().extendPage(pid)}>
             <ArrowDownToLine size={14} /> 페이지 아래로 늘리기

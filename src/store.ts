@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Material, NoteObj, Notebook, Page, Settings, Template, Tool } from "./types";
+import type { Conversion, Material, NoteObj, Notebook, Page, Settings, Template, Tool } from "./types";
 import { loadAll, saveMeta, savePageObjects, deletePageObjects } from "./db";
 import { debounce, uid } from "./util";
 
@@ -44,6 +44,7 @@ interface State {
   tableSize: { rows: number; cols: number };
   selection: string[];
   editingId: string | null;
+  conversion: Conversion | null;
 
   settings: Settings;
   history: Record<string, History>;
@@ -78,6 +79,7 @@ interface State {
   setTableSize(s: { rows: number; cols: number }): void;
   setSelection(ids: string[]): void;
   setEditing(id: string | null): void;
+  setConversion(c: Conversion | null): void;
 
   addMaterial(m: Material): void;
   updateMaterial(id: string, patch: Partial<Material>): void;
@@ -129,9 +131,10 @@ function sampleObjects(): NoteObj[] {
       color: "#3b4250",
       text:
         "✦ AI 풀이 (A): 문제와 내 풀이를 펜으로 둘러싸면 AI가 답을 옆에 적고, 내 답이 맞는지 채점해 줍니다.\n" +
+        "✦ 텍스트 변환 (C): 손글씨를 둘러싸면 컴퓨터 글자로 바꿔 줍니다. 결과를 확인·수정한 뒤 적용하세요.\n" +
         "✦ 표 (B): 원하는 크기의 표를 넣고, 선을 드래그해 셀 크기를 바꾸고, 지우개로 선을 지우면 셀이 병합됩니다.\n" +
         "✦ 강의자료: 상단의 📚 강의자료에서 PDF를 올리면 AI가 그 자료의 표기법과 공식을 참고해 풉니다.\n" +
-        "✦ 단축키: P 펜 · H 형광펜 · E 지우개 · V 올가미 · T 텍스트 · B 표 · A AI 풀이 · Space+드래그 이동 · Ctrl+Z 실행취소",
+        "✦ 단축키: P 펜 · H 형광펜 · E 지우개 · V 올가미 · T 텍스트 · B 표 · C 텍스트 변환 · A AI 풀이 · Space+드래그 이동 · Ctrl+Z 실행취소",
     },
     {
       id: uid(),
@@ -206,6 +209,7 @@ export const useStore = create<State>()((set, get) => ({
   tableSize: { rows: 3, cols: 3 },
   selection: [],
   editingId: null,
+  conversion: null,
 
   settings: loadSettings(),
   history: {},
@@ -378,7 +382,7 @@ export const useStore = create<State>()((set, get) => ({
   },
 
   openPage(pageId) {
-    set({ activePageId: pageId, selection: [], editingId: null });
+    set({ activePageId: pageId, selection: [], editingId: null, conversion: null });
     scheduleSave();
   },
 
@@ -470,6 +474,10 @@ export const useStore = create<State>()((set, get) => ({
 
   setEditing(editingId) {
     set({ editingId });
+  },
+
+  setConversion(conversion) {
+    set({ conversion });
   },
 
   addMaterial(m) {
