@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Eraser, Hand, Highlighter, Lasso, PenLine, ScanText, Sparkles, Table2, Type, BookOpen } from "lucide-react";
 import { useStore, PEN_COLORS, HL_COLORS } from "../store";
+import { TextSizeSelect } from "./TextSizeSelect";
 import type { Tool } from "../types";
 
 const TOOLS: { id: Tool; label: string; key: string; icon: React.ReactNode }[] = [
@@ -66,6 +67,12 @@ function ToolOptions() {
         <label className="swatch custom" data-tip="사용자 색상">
           <input type="color" value={style.color} onChange={(e) => setToolStyle(key, { color: e.target.value })} />
         </label>
+        {tool === "text" && (
+          <>
+            <span className="divider" />
+            <TextSizeSelect compact />
+          </>
+        )}
         {tool !== "text" && (
           <>
             <span className="divider" />
@@ -97,6 +104,8 @@ function ToolOptions() {
     return (
       <div className="tool-options">
         <span className="hint convert">손글씨를 둘러싸면 컴퓨터 글자로 바꿔요 · 결과를 확인·수정한 뒤 적용</span>
+        <span className="divider" />
+        <TextSizeSelect compact />
       </div>
     );
   if (tool === "select")

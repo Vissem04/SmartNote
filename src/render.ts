@@ -1,7 +1,8 @@
 import type { NoteObj, Page, Rect, TableObj, Template, TextObj } from "./types";
 import { prefix, strokePath, tableGroups, tableSegments } from "./geometry";
 
-export const FONT_FAMILY = `"Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif`;
+import { FONT_FAMILY, wrapText } from "./text";
+export { FONT_FAMILY, wrapText };
 
 export const TEMPLATE_SPACING = { lined: 40, grid: 40, dot: 32 } as const;
 
@@ -58,29 +59,6 @@ function drawTemplate(ctx: CanvasRenderingContext2D, t: Template, w: number, h: 
     for (let x = s; x < w; x += s) for (let y = s; y < h; y += s) ctx.fillRect(x - 1, y - 1, 2, 2);
   }
   ctx.restore();
-}
-
-/** 문자 단위 줄바꿈 (한글은 공백이 적으므로 글자 단위로 끊음) */
-export function wrapText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
-  const out: string[] = [];
-  for (const para of text.split("\n")) {
-    let line = "";
-    for (const ch of para) {
-      if (ctx.measureText(line + ch).width > maxW && line) {
-        // 가능하면 공백에서 끊기
-        const sp = line.lastIndexOf(" ");
-        if (sp > line.length * 0.5) {
-          out.push(line.slice(0, sp));
-          line = line.slice(sp + 1) + ch;
-        } else {
-          out.push(line);
-          line = ch;
-        }
-      } else line += ch;
-    }
-    out.push(line);
-  }
-  return out;
 }
 
 function drawText(ctx: CanvasRenderingContext2D, t: TextObj) {

@@ -4,6 +4,7 @@ import { useStore } from "../store";
 import { applyConversion, cancelConversion, convertRegion } from "../handwriting";
 import { FONT_FAMILY } from "../render";
 import { modKey } from "../util";
+import { TEXT_SIZES } from "./TextSizeSelect";
 
 const PANEL_W = 380;
 
@@ -81,7 +82,7 @@ export function ConvertPanel({ pageId, pageWidth, pageHeight }: { pageId: string
               className="convert-text"
               value={text}
               rows={Math.min(10, Math.max(2, text.split("\n").length))}
-              style={{ fontFamily: FONT_FAMILY, color: c.color }}
+              style={{ fontFamily: FONT_FAMILY, color: c.color, fontSize: Math.min(28, Math.max(14, c.fontSize)) }}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 e.stopPropagation();
@@ -94,6 +95,22 @@ export function ConvertPanel({ pageId, pageWidth, pageHeight }: { pageId: string
             />
             <div className="convert-hint">인식이 틀린 부분은 여기서 바로 고칠 수 있어요.</div>
             <div className="convert-actions">
+              <label className="size-select compact" title="글자 크기">
+                <select
+                  value={c.fontSize}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    useStore.getState().setConversion({ ...c, fontSize: n });
+                  }}
+                >
+                  {[...new Set([...TEXT_SIZES, c.fontSize])].sort((a, b) => a - b).map((n) => (
+                    <option key={n} value={n}>
+                      {n}px
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="spacer" />
               <button className="btn soft" onClick={() => applyConversion(text, false)} disabled={!text.trim()}>
                 아래에 추가
               </button>

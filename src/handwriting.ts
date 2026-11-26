@@ -1,6 +1,7 @@
 import { useStore } from "./store";
 import { bboxOfPoints, objBBox, objInLasso, polygonArea, unionRect } from "./geometry";
-import { FONT_FAMILY, renderRegion } from "./render";
+import { renderRegion } from "./render";
+import { naturalWidth } from "./text";
 import { transcribe } from "./api";
 import type { Rect, StrokeObj, TextObj } from "./types";
 import { uid } from "./util";
@@ -40,7 +41,8 @@ export async function convertRegion(pageId: string, polygon: [number, number][] 
   ctrl?.abort();
   ctrl = new AbortController();
   const signal = ctrl.signal;
-  const base = { pageId, strokeIds: strokes.map((s) => s.id), rect, fontSize: estimateFontSize(strokes), color: dominantColor(strokes) };
+  const fontSize = st.settings.convertMatchHandwriting ? estimateFontSize(strokes) : st.settings.textSize;
+  const base = { pageId, strokeIds: strokes.map((s) => s.id), rect, fontSize, color: dominantColor(strokes) };
   st.setConversion({ ...base, status: "loading", text: "" });
 
   try {
@@ -66,7 +68,7 @@ export function applyConversion(text: string, replace: boolean) {
   if (!c || !text.trim()) return;
   const page = st.pages[c.pageId];
   // 텍스트가 오른쪽 여백을 넘으면 상자를 왼쪽으로 옮겨 줄바꿈을 최소화
-  const want = Math.min(Math.max(c.rect.w + 24, measureWidth(text, c.fontSize) + 16, 160), page.width - 16);
+  const want = Math.min(Math.max(c.rect.w + 24, naturalWidth(text, c.fontSize) + 16, 160), page.width - 16);
   const x = Math.max(8, Math.min(c.rect.x - 4, page.width - want - 8));
   const w = Math.min(want, page.width - x - 8);
   const obj: TextObj = {
@@ -81,16 +83,10 @@ export function applyConversion(text: string, replace: boolean) {
   };
   st.updateObjects(c.pageId, (objs) => [...(replace ? objs.filter((o) => !c.strokeIds.includes(o.id)) : objs), obj]);
   st.setConversion(null);
-  st.setSelection([]);
-  st.toast(replace ? "손글씨를 텍스트로 바꿨습니다. 실행 취소로 되돌릴 수 있어요." : "텍스트를 추가했습니다.", "success");
-}
-
-let measureCtx: CanvasRenderingContext2D | null = null;
-function measureWidth(text: string, fontSize: number) {
-  measureCtx ??= document.createElement("canvas").getContext("2d");
-  if (!measureCtx) return 0;
-  measureCtx.font = `${fontSize}px ${FONT_FAMILY}`;
-  return Math.max(...text.split("\n").map((l) => measureCtx!.measureText(l).width));
+  // 바로 수정할 수 있도록 선택 상태로 둠 (더블클릭 또는 '편집' 버튼)
+  st.setTool("select");
+  st.setSelection([obj.id]);
+  st.toast(replace ? "텍스트로 바꿨습니다. 더블클릭하면 수정할 수 있어요." : "텍스트를 추가했습니다. 더블클릭하면 수정할 수 있어요.", "success");
 }
 
 /** 획들의 줄 높이로 글자 크기 추정 */

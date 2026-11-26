@@ -4,6 +4,7 @@ import { useStore, activeNotebook } from "../store";
 import type { Material, Settings } from "../types";
 import { deleteMaterial, health, uploadMaterial } from "../api";
 import { formatBytes, modKey, uid } from "../util";
+import { TextSizeSelect } from "./TextSizeSelect";
 
 function Modal({ title, icon, onClose, children, wide }: { title: string; icon: React.ReactNode; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   useEffect(() => {
@@ -179,6 +180,27 @@ export function SettingsPanel() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="setting">
+        <h3>글자 크기</h3>
+        <label className="row-toggle as-row">
+          <span>
+            <b>기본 글자 크기</b>
+            <small>문제 텍스트 붙여넣기, 손글씨 → 텍스트 변환, 새 텍스트 상자에 항상 이 크기를 사용합니다.</small>
+          </span>
+          <TextSizeSelect />
+        </label>
+        <label className="row-toggle" style={{ marginTop: 12 }}>
+          <span>
+            <b>변환할 때 손글씨 크기 따라가기</b>
+            <small>켜면 손글씨 크기에 맞춰 글자 크기를 추정합니다. 끄면 위의 기본 크기로 통일됩니다.</small>
+          </span>
+          <span className="switch">
+            <input type="checkbox" checked={settings.convertMatchHandwriting} onChange={(e) => st().setSettings({ convertMatchHandwriting: e.target.checked })} />
+            <span />
+          </span>
+        </label>
       </section>
 
       <section className="setting">

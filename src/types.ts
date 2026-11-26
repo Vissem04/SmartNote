@@ -111,6 +111,10 @@ export interface Settings {
   effort: "low" | "medium" | "high" | "xhigh";
   theme: "light" | "dark" | "system";
   penOnly: boolean;
+  /** 붙여넣기·손글씨 변환·새 텍스트 상자의 기본 글자 크기 */
+  textSize: number;
+  /** true면 손글씨 변환 시 손글씨 크기를 따라감 */
+  convertMatchHandwriting: boolean;
 }
 
 /** 손글씨 → 텍스트 변환 미리보기 */

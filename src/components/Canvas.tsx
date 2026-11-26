@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
-import { Copy, ScanText, Grid3x3, Minus, Plus, Rows3, Columns3, Sparkles, Trash2, Ungroup, ArrowDownToLine } from "lucide-react";
+import { Copy, Pencil, ScanText, AArrowDown, AArrowUp, Grid3x3, Minus, Plus, Rows3, Columns3, Sparkles, Trash2, Ungroup, ArrowDownToLine } from "lucide-react";
 import { useStore, activePage, PEN_COLORS } from "../store";
 import type { ImageObj, NoteObj, Page, Point, StrokeObj, TableObj, TextObj } from "../types";
 import {
@@ -16,6 +16,7 @@ import {
   tableWidth,
   translateObj,
   unionRect,
+  rectsIntersect,
 } from "../geometry";
 import { TableView } from "./TableView";
 import { AnswerCard } from "./AnswerCard";
@@ -24,7 +25,8 @@ import { solveRegion } from "../aiSolve";
 import { convertRegion, cancelConversion } from "../handwriting";
 import { ConvertPanel } from "./ConvertPanel";
 import { clamp, uid } from "../util";
-import { FONT_FAMILY, TEMPLATE_SPACING } from "../render";
+import { TEMPLATE_SPACING } from "../render";
+import { FONT_FAMILY, fitTextWidth, naturalWidth } from "../text";
 
 type XY = [number, number];
 
@@ -85,7 +87,10 @@ const TextView = memo(({ o, editing, pageId }: { o: TextObj; editing: boolean; p
         st.setEditing(null);
         if (!text.trim()) st.updateObjects(pageId, (objs) => objs.filter((x) => x.id !== o.id), false);
         // 새로 만든 상자는 생성과 입력을 하나의 실행 취소 단계로 묶음
-        else if (text !== o.text) st.updateObjects(pageId, (objs) => objs.map((x) => (x.id === o.id ? { ...x, text } : x)), o.text !== "");
+        else if (text !== o.text) {
+          const pw = st.pages[pageId]?.width ?? 1200;
+          st.updateObjects(pageId, (objs) => objs.map((x) => (x.id === o.id && x.type === "text" ? fitTextWidth({ ...x, text }, pw) : x)), o.text !== "");
+        }
       }}
     />
   );
@@ -98,6 +103,8 @@ export function Canvas() {
   if (!page) return <div className="canvas-wrap empty" />;
   return <PageCanvas key={page.id} page={page} />;
 }
+
+let appClipboard: { objs: NoteObj[]; sig: string } | null = null;
 
 const viewMemory = new Map<string, { x: number; y: number; z: number }>();
 
@@ -119,6 +126,7 @@ function PageCanvas({ page }: { page: Page }) {
   const penSeen = useRef(false);
   const spaceDown = useRef(false);
   const [aiPending, setAiPending] = useState<XY[] | null>(null);
+  const lastPos = useRef<XY | null>(null);
 
   const pageRef = useRef(page);
   pageRef.current = page;
@@ -254,17 +262,87 @@ function PageCanvas({ page }: { page: Page }) {
     reader.readAsDataURL(file);
   };
 
+  /** 붙여넣을 위치: 마지막 포인터 위치(화면 안이면), 아니면 화면 중앙 */
+  const pastePoint = (): XY => {
+    const r = wrapRef.current!.getBoundingClientRect();
+    const [cx, cy] = toPage(r.left + r.width / 2, r.top + r.height / 3);
+    const lp = lastPos.current;
+    if (lp) {
+      const v = view.current;
+      const sx = lp[0] * v.z + v.x, sy = lp[1] * v.z + v.y;
+      if (sx > 0 && sy > 0 && sx < r.width && sy < r.height) return lp;
+    }
+    return [cx, cy];
+  };
+
+  /** 텍스트(문제 등) 붙여넣기 → 설정된 기본 글자 크기의 텍스트 상자 */
+  const insertText = (raw: string) => {
+    const text = raw.replace(/\r\n?/g, "\n").replace(/\t/g, "    ").replace(/\n{3,}/g, "\n\n").trim();
+    if (!text) return;
+    const st = useStore.getState();
+    const pw = pageRef.current.width;
+    const fontSize = st.settings.textSize;
+    const w = clamp(naturalWidth(text, fontSize) + 16, 160, Math.min(760, pw - 40));
+    const [px, py] = pastePoint();
+    const x = clamp(px, 12, pw - w - 12);
+    const obj: TextObj = { id: uid(), type: "text", x, y: Math.max(12, py), w, text, fontSize, color: st.pen.color };
+    // 기존 내용과 겹치면 아래쪽 빈 자리로
+    const others = pageRef.current.objects.filter((o) => o.type !== "answer").map(objBBox);
+    const h = objBBox(obj).h;
+    while (obj.y + h < pageRef.current.height && others.some((b) => rectsIntersect(b, { x: obj.x, y: obj.y, w, h }))) obj.y += 16;
+    st.updateObjects(pageRef.current.id, (objs) => [...objs, obj]);
+    st.setTool("select");
+    st.setSelection([obj.id]);
+  };
+
+  /* ----- 복사 / 붙여넣기 (앱 객체 → 이미지 → 텍스트 순) ----- */
   useEffect(() => {
+    const onCopy = (e: ClipboardEvent) => {
+      if (isTyping(e.target) || window.getSelection()?.toString()) return;
+      const st = useStore.getState();
+      const sel = pageRef.current.objects.filter((o) => st.selection.includes(o.id));
+      if (!sel.length || !e.clipboardData) return;
+      e.preventDefault();
+      // 다른 앱에 붙여넣을 때는 텍스트로, SmartNote 안에서는 객체 그대로
+      const plain = sel.flatMap((o) => (o.type === "text" ? [o.text] : o.type === "table" ? Object.values(o.cells) : [])).join("\n");
+      appClipboard = { objs: sel, sig: plain || `smartnote:${sel.map((o) => o.id).join(",")}` };
+      e.clipboardData.setData("text/plain", appClipboard.sig);
+      st.toast(`${sel.length}개 항목을 복사했습니다.`, "info");
+    };
     const onPaste = (e: ClipboardEvent) => {
       if (isTyping(e.target)) return;
-      const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
+      const st = useStore.getState();
+      const data = e.clipboardData;
+      const plain = data?.getData("text/plain") ?? "";
+      // 1) 방금 SmartNote에서 복사한 객체
+      if (appClipboard && plain === appClipboard.sig) {
+        e.preventDefault();
+        const copies = appClipboard.objs.map((o) => ({ ...translateObj(o, 30, 30), id: uid() }));
+        appClipboard = { ...appClipboard, objs: copies };
+        st.updateObjects(pageRef.current.id, (objs) => [...objs, ...copies]);
+        st.setTool("select");
+        st.setSelection(copies.map((c) => c.id));
+        return;
+      }
+      // 2) 이미지 (스크린샷한 문제 등)
+      const file = [...(data?.files ?? [])].find((f) => f.type.startsWith("image/"));
       if (file) {
         e.preventDefault();
         insertImageFile(file);
+        return;
+      }
+      // 3) 텍스트 (복사한 문제 등) → 기본 글자 크기로
+      if (plain.trim()) {
+        e.preventDefault();
+        insertText(plain);
       }
     };
+    window.addEventListener("copy", onCopy);
     window.addEventListener("paste", onPaste);
-    return () => window.removeEventListener("paste", onPaste);
+    return () => {
+      window.removeEventListener("copy", onCopy);
+      window.removeEventListener("paste", onPaste);
+    };
   });
 
   /* ----- 선택 ----- */
@@ -389,7 +467,7 @@ function PageCanvas({ page }: { page: Page }) {
           return;
         }
         const w = Math.min(520, pageRef.current.width - x - 20);
-        const obj: TextObj = { id: uid(), type: "text", x: x - 4, y: y - 14, w: Math.max(160, w), text: "", fontSize: 20, color: st.pen.color, };
+        const obj: TextObj = { id: uid(), type: "text", x: x - 4, y: y - 14, w: Math.max(160, w), text: "", fontSize: st.settings.textSize, color: st.pen.color };
         st.updateObjects(pid, (objs) => [...objs, obj]);
         st.setEditing(obj.id);
         e.preventDefault();
@@ -427,6 +505,7 @@ function PageCanvas({ page }: { page: Page }) {
       p.y = e.clientY;
     }
     const [x, y] = toPage(e.clientX, e.clientY);
+    lastPos.current = [x, y];
     if (cursorRef.current) {
       cursorRef.current.setAttribute("cx", String(x));
       cursorRef.current.setAttribute("cy", String(y));
@@ -554,7 +633,8 @@ function PageCanvas({ page }: { page: Page }) {
 
   const onDoubleClick = (e: React.MouseEvent) => {
     const st = useStore.getState();
-    if (st.tool !== "select" && st.tool !== "table" && st.tool !== "text") return;
+    // 그리기 도구가 아니면 어디서든 더블클릭으로 텍스트·셀 편집
+    if (st.tool === "pen" || st.tool === "highlighter" || st.tool === "eraser") return;
     const cell = (e.target as HTMLElement).closest<HTMLElement>("[data-cell]");
     if (cell) {
       st.setEditing(`${cell.dataset.table}:${cell.dataset.cell}`);
@@ -628,6 +708,10 @@ function PageCanvas({ page }: { page: Page }) {
   const st = useStore.getState;
   const singleTable = selectedObjs.length === 1 && selectedObjs[0].type === "table" ? (selectedObjs[0] as TableObj) : null;
   const strokeSel = selectedObjs.filter((o): o is StrokeObj => o.type === "stroke");
+  const textSel = selectedObjs.filter((o): o is TextObj => o.type === "text");
+  const onlyText = textSel.length > 0 && textSel.length === selectedObjs.length;
+  const setTextSize = (fn: (n: number) => number) =>
+    st().updateObjects(pid, (objs) => objs.map((o) => (o.type === "text" && selection.includes(o.id) ? fitTextWidth({ ...o, fontSize: clamp(Math.round(fn(o.fontSize)), 8, 96) }, page.width) : o)));
 
   const delSelection = () => {
     st().updateObjects(pid, (objs) => objs.filter((o) => !selection.includes(o.id)));
@@ -738,6 +822,26 @@ function PageCanvas({ page }: { page: Page }) {
                     return { ...t, colWidths: t.colWidths.map(() => W / t.colWidths.length), rowHeights: t.rowHeights.map(() => H / t.rowHeights.length) };
                   })}>
                     <Grid3x3 size={15} />
+                  </button>
+                  <span className="sep" />
+                </>
+              )}
+              {onlyText && (
+                <>
+                  {textSel.length === 1 && (
+                    <button title="텍스트 수정 (더블클릭)" onClick={() => st().setEditing(textSel[0].id)}>
+                      <Pencil size={15} /> 수정
+                    </button>
+                  )}
+                  <button title="글자 작게" onClick={() => setTextSize((n) => n - 2)}>
+                    <AArrowDown size={16} />
+                  </button>
+                  <span className="size-readout">{textSel.length === 1 ? textSel[0].fontSize : "–"}</span>
+                  <button title="글자 크게" onClick={() => setTextSize((n) => n + 2)}>
+                    <AArrowUp size={16} />
+                  </button>
+                  <button title="기본 글자 크기로 맞추기" onClick={() => setTextSize(() => st().settings.textSize)}>
+                    기본 크기
                   </button>
                   <span className="sep" />
                 </>

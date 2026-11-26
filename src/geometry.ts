@@ -1,5 +1,7 @@
 import { getStroke } from "perfect-freehand";
 import type { NoteObj, Point, Rect, StrokeObj, TableObj } from "./types";
+import { textHeight } from "./text";
+export { textHeight };
 
 /* ---------------- 스트로크 ---------------- */
 
@@ -199,12 +201,6 @@ function segmentsCross(ax: number, ay: number, bx: number, by: number, cx: numbe
 
 /* ---------------- 객체 공통 ---------------- */
 
-export function textHeight(t: { text: string; fontSize: number; w: number }) {
-  // 대략적인 높이 추정 (선택 박스 용). 실제 DOM 높이는 렌더 시 결정됨
-  const charsPerLine = Math.max(1, Math.floor(t.w / (t.fontSize * 0.62)));
-  const lines = t.text.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / charsPerLine)), 0);
-  return Math.max(1, lines) * t.fontSize * 1.5 + 8;
-}
 
 export function objBBox(o: NoteObj): Rect {
   switch (o.type) {

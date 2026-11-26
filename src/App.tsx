@@ -7,12 +7,11 @@ import { Canvas, isTyping } from "./components/Canvas";
 import { MaterialsPanel, SettingsPanel, Toasts } from "./components/Panels";
 import { viewApi } from "./viewport";
 import { translateObj } from "./geometry";
-import type { NoteObj, Tool } from "./types";
+import type { Tool } from "./types";
 import { uid } from "./util";
 import { cancelConversion } from "./handwriting";
 
 const TOOL_KEYS: Record<string, Tool> = { p: "pen", h: "highlighter", e: "eraser", v: "select", t: "text", b: "table", a: "ai", c: "convert" };
-let clipboard: NoteObj[] = [];
 
 export default function App() {
   const loaded = useStore((s) => s.loaded);
@@ -74,20 +73,7 @@ export default function App() {
       const page = st.pages[pid];
       const sel = page.objects.filter((o) => st.selection.includes(o.id));
 
-      if (mod && k === "c" && sel.length) {
-        clipboard = sel;
-        st.toast(`${sel.length}개 항목을 복사했습니다.`, "info");
-        return;
-      }
-      if (mod && k === "v" && clipboard.length) {
-        // 이미지 붙여넣기는 Canvas의 paste 이벤트가 처리
-        const copies = clipboard.map((o) => ({ ...translateObj(o, 30, 30), id: uid() }));
-        clipboard = copies;
-        st.updateObjects(pid, (objs) => [...objs, ...copies]);
-        st.setTool("select");
-        st.setSelection(copies.map((c) => c.id));
-        return;
-      }
+      // 복사/붙여넣기는 Canvas의 copy/paste 이벤트에서 처리
       if (mod && k === "d" && sel.length) {
         e.preventDefault();
         const copies = sel.map((o) => ({ ...translateObj(o, 24, 24), id: uid() }));
