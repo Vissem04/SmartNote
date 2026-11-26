@@ -1947,3 +1947,8 @@ kbd {
     display: none;
   }
 }
+
+/* S펜 측면 버튼으로 잠시 켜진 지우개 */
+.tool-btn.temp {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}

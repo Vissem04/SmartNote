@@ -45,6 +45,8 @@ interface State {
   selection: string[];
   editingId: string | null;
   conversion: Conversion | null;
+  /** S펜 측면 버튼이 눌려 임시 지우개가 켜진 상태 */
+  penEraserHeld: boolean;
 
   settings: Settings;
   history: Record<string, History>;
@@ -80,6 +82,7 @@ interface State {
   setSelection(ids: string[]): void;
   setEditing(id: string | null): void;
   setConversion(c: Conversion | null): void;
+  setPenEraserHeld(v: boolean): void;
 
   addMaterial(m: Material): void;
   updateMaterial(id: string, patch: Partial<Material>): void;
@@ -212,6 +215,7 @@ export const useStore = create<State>()((set, get) => ({
   selection: [],
   editingId: null,
   conversion: null,
+  penEraserHeld: false,
 
   settings: loadSettings(),
   history: {},
@@ -486,6 +490,10 @@ export const useStore = create<State>()((set, get) => ({
 
   setConversion(conversion) {
     set({ conversion });
+  },
+
+  setPenEraserHeld(penEraserHeld) {
+    if (get().penEraserHeld !== penEraserHeld) set({ penEraserHeld });
   },
 
   addMaterial(m) {

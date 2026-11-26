@@ -21,6 +21,7 @@ const ERASER_SIZES = [8, 14, 28];
 export function Toolbar() {
   const tool = useStore((s) => s.tool);
   const setTool = useStore((s) => s.setTool);
+  const penEraserHeld = useStore((s) => s.penEraserHeld);
   const penOnly = useStore((s) => s.settings.penOnly);
   const setSettings = useStore((s) => s.setSettings);
 
@@ -28,7 +29,7 @@ export function Toolbar() {
     <div className="toolbar float-ui" onPointerDown={(e) => e.stopPropagation()}>
       <div className="tool-group">
         {TOOLS.map((t) => (
-          <button key={t.id} className={`tool-btn ${tool === t.id ? "active" : ""}`} onClick={() => setTool(t.id)} data-tip={`${t.label} (${t.key})`}>
+          <button key={t.id} className={`tool-btn ${(penEraserHeld ? t.id === "eraser" : tool === t.id) ? "active" : ""} ${penEraserHeld && t.id === "eraser" ? "temp" : ""}`} onClick={() => setTool(t.id)} data-tip={`${t.label} (${t.key})`}>
             {t.icon}
           </button>
         ))}

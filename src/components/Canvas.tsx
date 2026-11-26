@@ -25,7 +25,7 @@ import { solveRegion } from "../aiSolve";
 import { convertRegion, cancelConversion } from "../handwriting";
 import { ConvertPanel } from "./ConvertPanel";
 import { clamp, uid } from "../util";
-import { isPalmLike, isPenEraser, notePenActivity, penRecentlyActive } from "../input";
+import { isPalmLike, isPenEraser, notePenActivity, penButtonHeld, penRecentlyActive } from "../input";
 import { TEMPLATE_SPACING } from "../render";
 import { FONT_FAMILY, fitTextWidth, naturalWidth } from "../text";
 
@@ -33,7 +33,7 @@ type XY = [number, number];
 
 type Drag =
   | { kind: "draw"; points: Point[]; tool: "pen" | "highlighter"; color: string; size: number; simulate: boolean }
-  | { kind: "erase"; last: XY; started: boolean }
+  | { kind: "erase"; last: XY; started: boolean; viaButton?: boolean; protect?: string }
   | { kind: "lasso"; pts: XY[]; purpose: "select" | "ai" | "convert" }
   | { kind: "move"; start: XY; orig: NoteObj[]; moved: boolean }
   | { kind: "scale"; origin: XY; start: XY; orig: NoteObj[] }
@@ -114,6 +114,7 @@ function PageCanvas({ page }: { page: Page }) {
   const selection = useStore((s) => s.selection);
   const editingId = useStore((s) => s.editingId);
   const eraserSize = useStore((s) => s.eraserSize);
+  const penEraserHeld = useStore((s) => s.penEraserHeld);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
@@ -422,8 +423,9 @@ function PageCanvas({ page }: { page: Page }) {
     // S펜 버튼을 누른 채 쓰면 지우개
     if (isPenEraser(e)) {
       const [ex, ey] = toPage(e.clientX, e.clientY);
-      drag.current = { kind: "erase", last: [ex, ey], started: false };
+      drag.current = { kind: "erase", last: [ex, ey], started: false, viaButton: true };
       dragPointer.current = e.pointerId;
+      useStore.getState().setPenEraserHeld(true);
       eraseAlong(ex, ey, ex, ey);
       return;
     }
@@ -549,6 +551,53 @@ function PageCanvas({ page }: { page: Page }) {
       cursorRef.current.setAttribute("cx", String(x));
       cursorRef.current.setAttribute("cy", String(y));
     }
+    // S펜 측면 버튼: 누르는 동안만 지우개 (호버 중에도 지우개 커서 표시)
+    if (e.pointerType === "pen") {
+      const held = penButtonHeld(e);
+      useStore.getState().setPenEraserHeld(held);
+      const cur = drag.current;
+      // 측면 버튼을 누른 채로 펜이 닿거나 떨어지면 브라우저는 pointerdown/up 대신
+      // pointermove(buttons 2→3, 3→2)만 보낸다 → 여기서 지우기 시작/종료 처리
+      if (!cur && held && (e.buttons & 1) && !useStore.getState().editingId) {
+        notePenActivity(true);
+        wrapRef.current?.setPointerCapture(e.pointerId);
+        dragPointer.current = e.pointerId;
+        drag.current = { kind: "erase", last: [x, y], started: false, viaButton: true };
+        eraseAlong(x, y, x, y);
+        return;
+      }
+      // 접촉 비트(1)가 "방금" 풀렸을 때만(button === 0) 종료. 기기에 따라 버튼만(buttons=2)으로 닿는 경우가 있어
+      // 비트 1이 없다는 것만으로는 끝내지 않는다 (그 경우는 pointerup으로 끝남)
+      if (cur && cur.kind === "erase" && cur.viaButton && e.pointerId === dragPointer.current && e.button === 0 && !(e.buttons & 1)) {
+        notePenActivity(false);
+        drag.current = null;
+        dragPointer.current = null;
+        return;
+      }
+      if (cur && e.pointerId === dragPointer.current) {
+        if (held && cur.kind === "draw") {
+          // 쓰는 도중 버튼을 누름 → 지금까지의 획은 저장하고 지우개로 전환
+          // 펜 끝이 방금 쓴 획 위에 있으므로, 그 획은 이번 지우기에서 보호
+          const protect = commitStroke(cur);
+          drag.current = { kind: "erase", last: [x, y], started: false, viaButton: true, protect };
+          eraseAlong(x, y, x, y);
+          return;
+        }
+        if (!held && cur.kind === "erase" && cur.viaButton) {
+          // 버튼을 뗌 → 펜(형광펜)이면 그 자리부터 다시 쓰기, 다른 도구면 지우기만 멈춤
+          const st0 = useStore.getState();
+          if ((e.buttons & 1) && (st0.tool === "pen" || st0.tool === "highlighter")) {
+            const style = st0[st0.tool];
+            drag.current = { kind: "draw", points: [[x, y, e.pressure || 0.5]], tool: st0.tool, color: style.color, size: style.size, simulate: false };
+            renderLive();
+          } else {
+            drag.current = null;
+            dragPointer.current = null;
+          }
+          return;
+        }
+      }
+    }
     const d = drag.current;
     if (!d) return;
     // 드래그를 시작한 포인터의 움직임만 반영 (손바닥·다른 손가락 무시). 핀치는 두 터치를 함께 사용
@@ -629,7 +678,10 @@ function PageCanvas({ page }: { page: Page }) {
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
-    if (e.pointerType === "pen") notePenActivity(false);
+    if (e.pointerType === "pen") {
+      notePenActivity(false);
+      useStore.getState().setPenEraserHeld(penButtonHeld(e));
+    }
     pointers.current.delete(e.pointerId);
     const d = drag.current;
     // 다른 포인터(손바닥 등)가 떨어져도 진행 중인 획은 계속
@@ -649,17 +701,7 @@ function PageCanvas({ page }: { page: Page }) {
     const pid = pageRef.current.id;
 
     if (d.kind === "draw") {
-      cancelLive();
-      if (d.points.length === 1) d.points.push([d.points[0][0] + 0.1, d.points[0][1] + 0.1, d.points[0][2]]);
-      const stroke: StrokeObj = {
-        id: uid(),
-        type: "stroke",
-        tool: d.tool,
-        color: d.color,
-        size: d.size,
-        points: d.points.map(([x, y, p]) => [round2(x), round2(y), d.simulate ? 0.5 : round2(p)] as Point),
-      };
-      st.updateObjects(pid, (objs) => [...objs, stroke]);
+      commitStroke(d);
     } else if (d.kind === "lasso") {
       clearLasso();
       if (d.pts.length < 4) return;
@@ -674,6 +716,22 @@ function PageCanvas({ page }: { page: Page }) {
         solveRegion(pid, poly).finally(() => setAiPending(null));
       }
     }
+  };
+
+  /** 그리던 획을 페이지에 저장 */
+  const commitStroke = (d: Extract<Drag, { kind: "draw" }>) => {
+    liveRef.current?.setAttribute("d", "");
+    if (d.points.length === 1) d.points.push([d.points[0][0] + 0.1, d.points[0][1] + 0.1, d.points[0][2]]);
+    const stroke: StrokeObj = {
+      id: uid(),
+      type: "stroke",
+      tool: d.tool,
+      color: d.color,
+      size: d.size,
+      points: d.points.map(([x, y, p]) => [round2(x), round2(y), d.simulate ? 0.5 : round2(p)] as Point),
+    };
+    useStore.getState().updateObjects(pageRef.current.id, (objs) => [...objs, stroke]);
+    return stroke.id;
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
@@ -700,7 +758,7 @@ function PageCanvas({ page }: { page: Page }) {
     let changed = false;
     const next = objs
       .filter((o) => {
-        if (o.type === "stroke" && strokeHit(o, ax, ay, bx, by, rad)) {
+        if (o.type === "stroke" && o.id !== d.protect && strokeHit(o, ax, ay, bx, by, rad)) {
           changed = true;
           return false;
         }
@@ -786,13 +844,14 @@ function PageCanvas({ page }: { page: Page }) {
 
   /* ----- 렌더 ----- */
   const objs = page.objects;
-  const showCursor = tool === "eraser";
+  const showCursor = tool === "eraser" || penEraserHeld;
   const tplStyle = templateStyle(page);
 
   return (
     <div
       ref={wrapRef}
-      className={`canvas-wrap tool-${tool}`}
+      className={`canvas-wrap tool-${penEraserHeld ? "eraser" : tool}`}
+      onPointerLeave={(e) => e.pointerType === "pen" && useStore.getState().setPenEraserHeld(false)}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
