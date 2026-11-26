@@ -48,8 +48,12 @@ function AnswerCardInner({ a, pageId }: { a: AnswerObj; pageId: string }) {
   };
 
   const copy = async () => {
-    await navigator.clipboard.writeText(body.trim());
-    useStore.getState().toast("풀이를 복사했습니다.", "success");
+    try {
+      await navigator.clipboard.writeText(body.trim());
+      useStore.getState().toast("풀이를 복사했습니다.", "success");
+    } catch {
+      useStore.getState().toast("복사할 수 없는 환경입니다. 카드의 글을 직접 선택해 복사하세요.", "info");
+    }
   };
 
   const v = verdict && verdict !== "none" ? VERDICT_UI[verdict] : null;

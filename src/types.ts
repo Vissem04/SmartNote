@@ -98,6 +98,10 @@ export interface Material {
   kind: "pdf" | "text" | "image";
   size: number;
   fileId?: string;
+  /** 아티팩트 모드: 브라우저에서 추출한 텍스트 (PDF는 [p.N] 페이지 표시 포함) */
+  localText?: string;
+  /** 아티팩트 모드: 이미지 자료 data URL */
+  localImage?: string;
   status: "uploading" | "ready" | "error";
   error?: string;
   enabled: boolean;

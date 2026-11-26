@@ -5,7 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import Anthropic, { toFile } from "@anthropic-ai/sdk";
-import { SYSTEM_PROMPT, TRANSCRIBE_PROMPT, buildUserText } from "./prompt.js";
+import { SYSTEM_PROMPT, TRANSCRIBE_PROMPT, buildUserText } from "../shared/prompts.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = express();

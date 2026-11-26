@@ -12,6 +12,7 @@ export function Sidebar() {
   const [q, setQ] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState(false);
   const st = useStore.getState;
 
   const results = useMemo(() => {
@@ -96,6 +97,7 @@ export function Sidebar() {
                     onClick={(e) => {
                       e.stopPropagation();
                       setMenu(menu === nb.id ? null : nb.id);
+                      setConfirmDel(false);
                     }}
                   >
                     <MoreHorizontal size={15} />
@@ -108,11 +110,13 @@ export function Sidebar() {
                       <button
                         className="danger"
                         onClick={() => {
+                          if (!confirmDel) return setConfirmDel(true);
                           setMenu(null);
-                          if (confirm(`'${nb.title}' 노트와 모든 페이지를 삭제할까요?`)) st().deleteNotebook(nb.id);
+                          setConfirmDel(false);
+                          st().deleteNotebook(nb.id);
                         }}
                       >
-                        <Trash2 size={14} /> 노트 삭제
+                        <Trash2 size={14} /> {confirmDel ? `'${nb.title}' 전체 삭제 확인` : "노트 삭제"}
                       </button>
                     </div>
                   )}

@@ -5,6 +5,7 @@ import { useView, viewApi } from "../viewport";
 import type { Template } from "../types";
 import { renderPage } from "../render";
 import { modKey } from "../util";
+import { getDownloads, isArtifact } from "../runtime";
 
 const TEMPLATES: { id: Template; label: string }[] = [
   { id: "blank", label: "무지" },
@@ -26,13 +27,17 @@ export function TopBar() {
   const [busy, setBusy] = useState(false);
   const st = useStore.getState;
 
-  const isDark = theme === "dark" || (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+  // 실제로 적용된 테마 (명시 설정 → data-theme, system → 호스트 속성 또는 OS 설정)
+  void theme;
+  const attr = document.documentElement.dataset.theme;
+  const isDark = attr ? attr === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
 
   const exportPng = async () => {
     if (!page) return;
     setExportOpen(false);
     const c = await renderPage(page, 2);
-    download(c.toDataURL("image/png"), `${nb?.title ?? "note"}-${page.title}.png`);
+    const blob = await new Promise<Blob | null>((res) => c.toBlob(res, "image/png"));
+    if (blob) await saveFile(blob, `${nb?.title ?? "note"}-${page.title}.png`).catch((e: Error) => st().toast(e.message, "error"));
   };
 
   const exportPdf = async () => {
@@ -50,8 +55,7 @@ export function TopBar() {
         else doc.addPage([p.width, p.height], orient);
         doc.addImage(c.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, p.width, p.height);
       }
-      doc?.save(`${nb.title}.pdf`);
-      st().toast("PDF로 내보냈습니다.", "success");
+      if (doc) await saveFile(doc.output("blob"), `${nb.title}.pdf`);
     } catch (e) {
       console.error(e);
       st().toast("PDF 내보내기에 실패했습니다.", "error");
@@ -163,9 +167,24 @@ export function TopBar() {
   );
 }
 
-function download(url: string, name: string) {
+/** 파일 저장: 아티팩트 안에서는 downloads 기능(보는 사람이 확인), 아니면 일반 다운로드 */
+async function saveFile(data: Blob, name: string) {
+  const filename = name.replace(/[\\/:*?"<>|]/g, "_");
+  if (isArtifact) {
+    const dl = await getDownloads();
+    if (!dl) throw new Error("이 화면에서는 파일을 저장할 수 없습니다.");
+    try {
+      await dl.save({ filename, data });
+    } catch (e) {
+      if ((e as { code?: string }).code === "declined") return;
+      throw new Error("파일을 저장하지 못했습니다.");
+    }
+    return;
+  }
+  const url = URL.createObjectURL(data);
   const a = document.createElement("a");
   a.href = url;
-  a.download = name.replace(/[\\/:*?"<>|]/g, "_");
+  a.download = filename;
   a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }

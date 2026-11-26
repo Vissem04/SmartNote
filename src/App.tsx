@@ -11,6 +11,7 @@ import type { Tool } from "./types";
 import { uid } from "./util";
 import { cancelConversion } from "./handwriting";
 
+const initialTheme = document.documentElement.dataset.theme;
 const TOOL_KEYS: Record<string, Tool> = { p: "pen", h: "highlighter", e: "eraser", v: "select", t: "text", b: "table", a: "ai", c: "convert" };
 
 export default function App() {
@@ -27,8 +28,11 @@ export default function App() {
   useEffect(() => {
     const mq = matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
-      const dark = theme === "dark" || (theme === "system" && mq.matches);
-      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      // system: 호스트(claude.ai)가 준 data-theme 또는 OS 설정(CSS 미디어 쿼리)을 그대로 따름
+      if (theme === "system") {
+        if (initialTheme) document.documentElement.dataset.theme = initialTheme;
+        else delete document.documentElement.dataset.theme;
+      } else document.documentElement.dataset.theme = theme;
     };
     apply();
     mq.addEventListener("change", apply);

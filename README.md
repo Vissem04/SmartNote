@@ -62,12 +62,25 @@ npm run dev             # http://localhost:5173
 npm run build && npm start   # http://localhost:8787 에서 서버가 빌드된 앱도 함께 제공
 ```
 
+### claude.ai 아티팩트로 실행 (서버·API 키 없이)
+
+```bash
+npm run build:artifact   # dist/artifact.html + dist/assets/* 생성
+```
+
+같은 빌드가 실행 환경을 알아서 감지하고, 아티팩트로 열리면 아래처럼 동작합니다.
+- AI 풀이와 텍스트 변환은 `/api` 서버 대신 아티팩트의 `sample` 기능을 씁니다. 사용량은 보는 사람의 claude.ai 계정에서 차감되고, 처음 사용할 때 허용 여부를 묻습니다.
+- 강의자료는 브라우저에서 바로 읽습니다. PDF는 pdf.js로 쪽 번호와 함께 글자를 추출하고, 텍스트와 이미지는 그대로 씁니다. 스캔본 PDF는 글자를 뽑을 수 없으니 쪽을 이미지로 올려야 합니다.
+- PNG/PDF 내보내기는 `downloads` 기능으로 저장 확인 창을 거칩니다.
+- 노트는 그 브라우저의 IndexedDB에만 저장됩니다.
+
 ## 구조
 
 | 경로 | 역할 |
 |---|---|
 | `server/index.ts` | Express 서버. `/api/solve`(SSE 스트리밍 풀이), `/api/transcribe`(손글씨 인식), `/api/materials`(Files API 업로드/삭제) |
-| `server/prompt.ts` | 풀이 시스템 프롬프트, 손글씨 인식 프롬프트 |
+| `shared/prompts.ts` | 풀이·손글씨 인식 프롬프트 (서버와 아티팩트 모드가 함께 사용) |
+| `src/runtime.ts`, `src/materials.ts` | 아티팩트 모드 감지, `sample`/`downloads` 연결, 브라우저 강의자료 추출 |
 | `src/handwriting.ts`, `src/components/ConvertPanel.tsx` | 손글씨 → 텍스트 변환 (`/api/transcribe`) 과 미리보기 |
 | `src/components/Canvas.tsx` | 캔버스: 그리기, 지우개(표 선 병합 포함), 올가미, AI 경계, 확대/이동 |
 | `src/components/TableView.tsx` | 표 렌더링, 경계 드래그 크기 조절, 셀 편집, 선 복원 |

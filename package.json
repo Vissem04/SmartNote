@@ -6,7 +6,8 @@
     "dev": "concurrently -k -n server,web -c blue,green \"tsx watch server/index.ts\" \"vite\"",
     "build": "tsc -b && vite build",
     "start": "tsx server/index.ts",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "build:artifact": "vite build && node scripts/artifact-page.mjs"
   },
   "repository": {
     "type": "git",
@@ -26,6 +27,7 @@
     "katex": "^0.19.1",
     "lucide-react": "^1.80.0",
     "multer": "^2.5.0",
+    "pdfjs-dist": "^6.5.438",
     "perfect-freehand": "^1.2.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

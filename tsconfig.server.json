@@ -10,5 +10,5 @@
     "types": ["node"],
     "tsBuildInfoFile": "./node_modules/.tmp/server.tsbuildinfo"
   },
-  "include": ["server"]
+  "include": ["server", "shared"]
 }

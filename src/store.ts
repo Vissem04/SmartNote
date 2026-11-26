@@ -219,7 +219,13 @@ export const useStore = create<State>()((set, get) => ({
   sidebarOpen: typeof window !== "undefined" ? window.innerWidth > 900 : true,
 
   async init() {
-    const { meta, pages } = await loadAll();
+    let loadedData: Awaited<ReturnType<typeof loadAll>> = { meta: undefined, pages: {} };
+    try {
+      loadedData = await loadAll();
+    } catch (e) {
+      console.warn("저장된 노트를 불러올 수 없습니다 (브라우저 저장소 차단)", e);
+    }
+    const { meta, pages } = loadedData;
     if (meta && meta.notebooks.length) {
       set({
         loaded: true,
@@ -497,7 +503,11 @@ export const useStore = create<State>()((set, get) => ({
 
   setSettings(patch) {
     const settings = { ...get().settings, ...patch };
-    localStorage.setItem("smartnote:settings", JSON.stringify(settings));
+    try {
+      localStorage.setItem("smartnote:settings", JSON.stringify(settings));
+    } catch {
+      /* 저장소를 쓸 수 없는 환경: 이번 세션에만 적용 */
+    }
     set({ settings });
   },
 

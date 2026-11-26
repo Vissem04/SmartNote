@@ -5,6 +5,7 @@ import type { Material, Settings } from "../types";
 import { deleteMaterial, health, uploadMaterial } from "../api";
 import { formatBytes, modKey, uid } from "../util";
 import { TextSizeSelect } from "./TextSizeSelect";
+import { isArtifact } from "../runtime";
 
 function Modal({ title, icon, onClose, children, wide }: { title: string; icon: React.ReactNode; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   useEffect(() => {
@@ -57,8 +58,8 @@ export function MaterialsPanel() {
       }
       const m: Material = { id: uid(), notebookId: nb.id, name: file.name, mime: file.type, kind, size: file.size, status: "uploading", enabled: true, createdAt: Date.now() };
       st().addMaterial(m);
-      uploadMaterial(file, settings)
-        .then(({ fileId }) => st().updateMaterial(m.id, { fileId, status: "ready" }))
+      uploadMaterial(file, settings, kind, (msg) => st().updateMaterial(m.id, { error: msg }))
+        .then((patch) => st().updateMaterial(m.id, { ...patch, error: undefined, status: "ready" }))
         .catch((e: Error) => st().updateMaterial(m.id, { status: "error", error: e.message }));
     }
   };
@@ -103,7 +104,7 @@ export function MaterialsPanel() {
                 {formatBytes(m.size)} ·{" "}
                 {m.status === "uploading" ? (
                   <>
-                    <Loader2 size={11} className="spin" /> 업로드 중
+                    <Loader2 size={11} className="spin" /> {m.error ?? (isArtifact ? "읽는 중" : "업로드 중")}
                   </>
                 ) : m.status === "ready" ? (
                   <>
@@ -145,11 +146,20 @@ export function SettingsPanel() {
   const st = useStore.getState;
 
   useEffect(() => {
-    health().then(setServer);
+    if (!isArtifact) health().then(setServer);
   }, []);
 
   return (
     <Modal title="설정" icon={<KeyRound size={20} className="accent-ic" />} onClose={() => st().setPanel(null)}>
+      {isArtifact ? (
+        <section className="setting">
+          <h3>AI 연결</h3>
+          <div className="server-status ok">claude.ai 계정의 Claude를 사용합니다</div>
+          <small className="note">
+            AI 풀이와 텍스트 변환은 지금 로그인한 claude.ai 계정의 사용량으로 동작합니다. 처음 사용할 때 Claude 사용 허용 여부를 묻습니다. API 키는 필요 없습니다.
+          </small>
+        </section>
+      ) : (
       <section className="setting">
         <h3>AI 연결</h3>
         <div className={`server-status ${server === "loading" ? "" : server ? (server.hasServerKey || settings.apiKey ? "ok" : "warn") : "bad"}`}>
@@ -169,6 +179,7 @@ export function SettingsPanel() {
           <small>이 브라우저에만 저장되며, 내 SmartNote 서버를 거쳐 Anthropic API로만 전송됩니다.</small>
         </label>
       </section>
+      )}
 
       <section className="setting">
         <h3>풀이 정확도</h3>
