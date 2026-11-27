@@ -1,6 +1,6 @@
 import type { Material, Settings } from "./types";
 import { SYSTEM_PROMPT, TRANSCRIBE_PROMPT, buildUserText } from "../shared/prompts";
-import { getSample, isArtifact, sampleErrorMessage } from "./runtime";
+import { getSample, isArtifact, isNative, localMaterials, sampleErrorMessage } from "./runtime";
 import { dataUrlToBlob, extractPdfText, packMaterials, readAsDataUrl } from "./materials";
 
 function headers(settings: Settings, json = true): HeadersInit {
@@ -21,7 +21,7 @@ export async function health(): Promise<{ hasServerKey: boolean; model: string }
 
 /** 강의자료 준비: 서버 모드는 Files API 업로드, 아티팩트 모드는 브라우저에서 텍스트/이미지 추출 */
 export async function uploadMaterial(file: File, settings: Settings, kind: Material["kind"], onProgress?: (msg: string) => void): Promise<Partial<Material>> {
-  if (isArtifact) {
+  if (localMaterials) {
     if (kind === "pdf") {
       const text = await extractPdfText(file, (d, t) => onProgress?.(`${d}/${t}쪽 읽는 중`));
       if (text.replace(/\[p\.\d+\]/g, "").trim().length < 20) throw new Error("PDF에서 글자를 찾지 못했습니다. 스캔본이면 페이지를 이미지로 올려 주세요.");
@@ -43,11 +43,15 @@ async function uploadToServer(file: File, settings: Settings): Promise<{ fileId:
 }
 
 export async function deleteMaterial(fileId: string, settings: Settings) {
-  if (isArtifact) return;
+  if (localMaterials) return;
   await fetch(`/api/materials/${encodeURIComponent(fileId)}`, { method: "DELETE", headers: headers(settings, false) }).catch(() => {});
 }
 
 export async function transcribe(image: string, settings: Settings, signal?: AbortSignal): Promise<string> {
+  if (isNative) {
+    const { transcribeDirect } = await import("./directApi");
+    return transcribeDirect(image, settings, signal);
+  }
   if (isArtifact) {
     const sample = await getSample();
     if (!sample) throw new Error("이 화면에서는 텍스트 변환을 사용할 수 없습니다.");
@@ -90,6 +94,10 @@ export function solve(
   const ctrl = new AbortController();
   if (isArtifact) {
     solveViaSample(args, settings, h, ctrl.signal);
+    return ctrl;
+  }
+  if (isNative) {
+    import("./directApi").then(({ solveDirect }) => solveDirect(args, settings, h, ctrl.signal));
     return ctrl;
   }
   (async () => {

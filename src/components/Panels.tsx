@@ -5,7 +5,7 @@ import type { Material, Settings } from "../types";
 import { deleteMaterial, health, uploadMaterial } from "../api";
 import { formatBytes, modKey, uid } from "../util";
 import { TextSizeSelect } from "./TextSizeSelect";
-import { isArtifact } from "../runtime";
+import { isArtifact, isNative, localMaterials } from "../runtime";
 
 function Modal({ title, icon, onClose, children, wide }: { title: string; icon: React.ReactNode; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   useEffect(() => {
@@ -76,7 +76,7 @@ export function MaterialsPanel() {
   return (
     <Modal title="강의자료" icon={<BookOpen size={20} className="accent-ic" />} onClose={() => st().setPanel(null)} wide>
       <p className="modal-desc">
-        <b>{nb?.title}</b> 노트에 첨부한 자료는 문제를 풀 때 참고합니다. 자료의 정의·표기법·공식을 따라 풀기 때문에 수업 방식과 같은 풀이를 얻을 수 있어요.{isArtifact ? " PDF는 이 기기에서 글자를 읽어 쪽 번호와 함께 참조합니다." : " 같은 자료로 반복해서 풀면 캐시가 적용되어 더 빠르고 저렴합니다."}
+        <b>{nb?.title}</b> 노트에 첨부한 자료는 문제를 풀 때 참고합니다. 자료의 정의·표기법·공식을 따라 풀기 때문에 수업 방식과 같은 풀이를 얻을 수 있어요.{localMaterials ? " PDF는 이 기기에서 글자를 읽어 쪽 번호와 함께 참조합니다." : " 같은 자료로 반복해서 풀면 캐시가 적용되어 더 빠르고 저렴합니다."}
       </p>
       <input
         ref={fileRef}
@@ -139,7 +139,7 @@ export function MaterialsPanel() {
                 {formatBytes(m.size)} ·{" "}
                 {m.status === "uploading" ? (
                   <>
-                    <Loader2 size={11} className="spin" /> {m.error ?? (isArtifact ? "읽는 중" : "업로드 중")}
+                    <Loader2 size={11} className="spin" /> {m.error ?? (localMaterials ? "읽는 중" : "업로드 중")}
                   </>
                 ) : m.status === "ready" ? (
                   <>
@@ -181,12 +181,24 @@ export function SettingsPanel() {
   const st = useStore.getState;
 
   useEffect(() => {
-    if (!isArtifact) health().then(setServer);
+    if (!isArtifact && !isNative) health().then(setServer);
   }, []);
 
   return (
     <Modal title="설정" icon={<KeyRound size={20} className="accent-ic" />} onClose={() => st().setPanel(null)}>
-      {isArtifact ? (
+      {isNative ? (
+        <section className="setting">
+          <h3>연결</h3>
+          <div className={`server-status ${settings.apiKey ? "ok" : "warn"}`}>
+            {settings.apiKey ? "API 키 설정됨 · 풀이와 텍스트 변환을 쓸 수 있어요" : "풀이와 텍스트 변환을 쓰려면 API 키를 입력하세요"}
+          </div>
+          <label className="field">
+            <span>Anthropic API 키</span>
+            <input type="password" placeholder="sk-ant-…" value={settings.apiKey} onChange={(e) => st().setSettings({ apiKey: e.target.value })} autoComplete="off" />
+            <small>이 태블릿에만 저장되며 Anthropic API로만 전송됩니다. 사용량은 이 키의 계정에 청구됩니다.</small>
+          </label>
+        </section>
+      ) : isArtifact ? (
         <section className="setting">
           <h3>연결</h3>
           <div className="server-status ok">claude.ai 계정의 Claude를 사용합니다</div>

@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 /**
  * 실행 환경 감지.
  * - 서버 모드: `npm run dev` / `npm start` → /api 서버가 Anthropic API 호출
@@ -20,6 +21,12 @@ const claudeUse: Use | null = typeof window !== "undefined" && typeof (window as
 
 /** claude.ai 아티팩트 안에서 실행 중인지 */
 export const isArtifact = claudeUse !== null;
+
+/** 설치형 안드로이드 앱(APK) 안에서 실행 중인지 — 서버 없이 기기에서 API 직접 호출 */
+export const isNative = !isArtifact && Capacitor.isNativePlatform();
+
+/** 강의자료를 기기에서 읽어 쓰는 모드 (서버 Files API 대신) */
+export const localMaterials = isArtifact || isNative;
 
 let samplePromise: Promise<SampleFn | null> | null = null;
 export function getSample(): Promise<SampleFn | null> {

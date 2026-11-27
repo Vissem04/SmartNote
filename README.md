@@ -101,13 +101,31 @@ npm run build:artifact   # dist/artifact.html + dist/assets/* 생성
 - PNG/PDF 내보내기는 `downloads` 기능으로 저장 확인 창을 거칩니다.
 - 노트는 그 브라우저의 IndexedDB에만 저장됩니다.
 
+### 갤럭시 탭용 안드로이드 앱 (디버그 APK)
+
+```bash
+# 필요: JDK 21, Android SDK (platform 36, build-tools 36) — ANDROID_HOME 또는 android/local.properties 의 sdk.dir
+npm run build:android    # → android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+- **풀이·텍스트 변환**: 서버 없이 태블릿에서 Anthropic API를 직접 호출합니다. 앱의 **설정 → 연결**에 API 키를 입력해야 하며, 키는 그 기기에만 저장됩니다.
+- **강의자료**: 기기에서 바로 읽습니다(PDF는 글자 추출).
+- **내보내기(PNG·PDF)**: 안드로이드 공유 창이 열려 내 파일·드라이브에 저장하거나 다른 앱으로 보낼 수 있습니다.
+- **디버깅**: 디버그 빌드는 웹뷰 디버깅이 켜져 있습니다. 태블릿을 USB로 연결하고 컴퓨터 크롬에서 `chrome://inspect`를 열면 앱 화면의 콘솔·네트워크·요소를 검사할 수 있습니다.
+
+설치 방법은 두 가지입니다.
+1. APK 파일을 태블릿으로 옮긴 뒤 내 파일에서 열어 설치합니다. 처음이면 "출처를 알 수 없는 앱 설치"를 허용해야 합니다.
+2. USB 디버깅을 켜고 컴퓨터에서 `adb install -r app-debug.apk`를 실행합니다.
+
 ## 구조
 
 | 경로 | 역할 |
 |---|---|
 | `server/index.ts` | Express 서버. `/api/solve`(SSE 스트리밍 풀이), `/api/transcribe`(손글씨 인식), `/api/materials`(Files API 업로드/삭제) |
 | `shared/prompts.ts` | 풀이·손글씨 인식 프롬프트 (서버와 아티팩트 모드가 함께 사용) |
-| `src/runtime.ts`, `src/materials.ts` | 아티팩트 모드 감지, `sample`/`downloads` 연결, 브라우저 강의자료 추출 |
+| `src/runtime.ts`, `src/materials.ts` | 실행 환경 감지(서버·아티팩트·안드로이드 앱), `sample`/`downloads` 연결, 기기 내 강의자료 추출 |
+| `src/directApi.ts` | 안드로이드 앱 모드: 기기에서 Anthropic API 직접 호출 |
+| `android/`, `capacitor.config.ts` | Capacitor 안드로이드 프로젝트 (아이콘·실행 화면 포함) |
 | `src/handwriting.ts`, `src/components/ConvertPanel.tsx` | 손글씨 → 텍스트 변환 (`/api/transcribe`) 과 미리보기 |
 | `src/components/Canvas.tsx` | 캔버스: 그리기, 지우개(표 선 병합 포함), 올가미, AI 경계, 확대/이동 |
 | `src/components/TableView.tsx` | 표 렌더링, 경계 드래그 크기 조절, 셀 편집, 선 복원 |

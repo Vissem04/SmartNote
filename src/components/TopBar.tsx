@@ -6,7 +6,7 @@ import { useView, viewApi } from "../viewport";
 import type { Template } from "../types";
 import { renderPage } from "../render";
 import { modKey } from "../util";
-import { getDownloads, isArtifact } from "../runtime";
+import { getDownloads, isArtifact, isNative } from "../runtime";
 
 const TEMPLATES: { id: Template; label: string }[] = [
   { id: "blank", label: "무지" },
@@ -186,6 +186,21 @@ export function TopBar() {
 /** 파일 저장: 아티팩트 안에서는 downloads 기능(보는 사람이 확인), 아니면 일반 다운로드 */
 async function saveFile(data: Blob, name: string) {
   const filename = name.replace(/[\\/:*?"<>|]/g, "_");
+  if (isNative) {
+    // 안드로이드 앱: 임시 파일로 쓴 뒤 공유 시트(내 파일·드라이브 저장, 다른 앱으로 보내기)
+    const [{ Filesystem, Directory }, { Share }] = await Promise.all([import("@capacitor/filesystem"), import("@capacitor/share")]);
+    const base64 = await new Promise<string>((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res((r.result as string).split(",")[1]);
+      r.onerror = rej;
+      r.readAsDataURL(data);
+    });
+    const { uri } = await Filesystem.writeFile({ path: filename, data: base64, directory: Directory.Cache });
+    await Share.share({ title: filename, files: [uri] }).catch(() => {
+      /* 사용자가 공유 창을 닫음 */
+    });
+    return;
+  }
   if (isArtifact) {
     const dl = await getDownloads();
     if (!dl) throw new Error("이 화면에서는 파일을 저장할 수 없습니다.");
